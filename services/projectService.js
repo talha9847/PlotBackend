@@ -13,23 +13,23 @@ class ProjectServiceError extends Error {
 function generatePlotPrefix(projectName) {
   const words = projectName.trim().split(/\s+/);
 
+  let prefix;
+
   if (words.length > 1) {
-    return (
-      words
-        .map((word) => word[0])
-        .join("")
-        .replace(/[^a-zA-Z0-9]/g, "")
-        .toUpperCase()
-        .slice(0, 10) || "PLT"
-    );
+    prefix = words
+      .map((word) => word[0])
+      .join("")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toUpperCase()
+      .slice(0, 10);
+  } else {
+    prefix = projectName
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toUpperCase()
+      .slice(0, 3);
   }
 
-  return (
-    projectName
-      .replace(/[^a-zA-Z0-9]/g, "")
-      .slice(0, 3)
-      .toUpperCase() || "PLT"
-  );
+  return prefix || "PLT";
 }
 
 async function createProject(data, createdBy = null) {
@@ -100,11 +100,11 @@ async function createProject(data, createdBy = null) {
 
     // Generate plot numbers, e.g. GV-101, GV-102...
     const prefix = generatePlotPrefix(project.name);
-    const startNumber = 101;
+    const startNumber = 1;
 
     const plotNumbers = Array.from(
       { length: project.plots },
-      (_, index) => `${prefix}-${startNumber + index}`,
+      (_, index) => `${prefix}-${String(startNumber + index).padStart(3, "0")}`,
     );
 
     // Bulk insert all plots in a single query.
