@@ -46,5 +46,32 @@ async function login(req, res, next) {
     next(error);
   }
 }
+async function me(req, res, next) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid authentication token",
+      });
+    }
 
-module.exports = { login };
+    // Fetch fresh user details from the database.
+    const user = await authService.getUserById(userId);
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not found or inactive",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: { user },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+module.exports = { login, me };

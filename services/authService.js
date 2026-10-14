@@ -42,4 +42,38 @@ async function login(email, password) {
   };
 }
 
-module.exports = { login };
+async function getUserById(userId) {
+  const result = await query(
+    `SELECT id, uuid, full_name, email, role, is_active
+     FROM users
+     WHERE id = $1
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [userId],
+  );
+
+  if (result.rowCount === 0) {
+    return null;
+  }
+
+  const user = result.rows[0];
+
+  if (!user.is_active) {
+    return null;
+  }
+
+  return {
+    id: user.id,
+    uuid: user.uuid,
+    name: user.full_name,
+    email: user.email,
+    role: user.role,
+  };
+}
+
+module.exports = {
+  login,
+  getUserById,
+};
+
+module.exports = { login, getUserById };
