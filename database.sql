@@ -454,11 +454,3 @@ END $$;
 
 COMMIT;
 
--- First admin: create in a Node seed script after hashing the password with bcrypt/Argon2:
--- INSERT INTO users(full_name,email,password_hash,role) VALUES($1,$2,$3,'admin');
--- Optionally also assign roles table entry:
--- INSERT INTO user_roles(user_id,role_id) SELECT $user_id,id FROM roles WHERE name='admin';
--- Never allow public signup requests to set their own role to admin.
--- Business rules such as payment-allocation totals, refunds <= payment amount,
--- booking/plot status synchronization and installment balances must be enforced
--- in transactional service logic (or additional triggers) before production.
