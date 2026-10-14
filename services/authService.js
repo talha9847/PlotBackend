@@ -1,0 +1,45 @@
+const { query } = require("../config/db");
+const bcrypt = require("bcrypt");
+
+async function login(email, password) {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const result = await query(
+    `SELECT id, uuid, full_name, email, password_hash, role, is_active
+     FROM users
+     WHERE LOWER(email) = $1
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [normalizedEmail],
+  );
+
+  if (result.rowCount === 0) {
+    return null;
+  }
+
+  const user = result.rows[0];
+
+  if (!user.is_active) {
+    return null;
+  }
+
+  const passwordMatches = await bcrypt.compare(password, user.password_hash);
+
+  if (!passwordMatches) {
+    return null;
+  }
+
+  await query("UPDATE users SET last_login_at = NOW() WHERE id = $1", [
+    user.id,
+  ]);
+
+  return {
+    id: user.id,
+    uuid: user.uuid,
+    name: user.full_name,
+    email: user.email,
+    role: user.role,
+  };
+}
+
+module.exports = { login };
