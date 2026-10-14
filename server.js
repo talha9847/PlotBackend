@@ -6,6 +6,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const cookieParser = require("cookie-parser");
 const authRoutes = require("./routes/authRoutes");
+const projectRoutes = require("./routes/projectRoutes");
 // Middleware
 app.use(
   cors({
@@ -44,6 +45,7 @@ app.get("/api/health", async (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/projects", projectRoutes);
 
 // 404 handler
 app.use((req, res) => {
