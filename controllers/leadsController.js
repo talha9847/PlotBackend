@@ -18,6 +18,14 @@ const validOptionalString = (value, maxLength) =>
 async function createLead(req, res, next) {
   try {
     const body = req.body || {};
+
+    body.projectId =
+      body.projectId === "" || body.projectId == null
+        ? null
+        : Number(body.projectId);
+
+    body.plotId =
+      body.plotId === "" || body.plotId == null ? null : Number(body.plotId);
     if (!body.brokerId || body.brokerId == 0) body.brokerId = 1;
     if (
       typeof body.name !== "string" ||
@@ -119,6 +127,8 @@ async function createLead(req, res, next) {
         postal_code: optionalString(body.postal_code),
         country_code: countryCode,
         notes: optionalString(body.notes),
+        projectId: body.projectId,
+        plotId: body.plotId,
       },
       req.user?.id ?? null,
     );

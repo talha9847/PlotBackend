@@ -39,7 +39,10 @@ async function createLead(data, createdBy = null) {
     postal_code,
     country_code = "IN",
     notes,
+    projectId,
+    plotId,
   } = data;
+
 
   const result = await query(
     `INSERT INTO leads (
@@ -58,18 +61,20 @@ async function createLead(data, createdBy = null) {
       country_code,
       notes,
       created_by,
-      broker_id
+      broker_id,
+      project_id,
+      plot_id
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8,
-      $9, $10, $11, $12, $13, $14, $15, $16
+      $9, $10, $11, $12, $13, $14, $15, $16,$17,$18
     )
     RETURNING
       id, uuid, name, phone, alternate_phone, email,
       lead_type, company_name, address_line1,
       address_line2, city, district, state, postal_code,
       country_code, notes,
-      created_by, created_at,broker_id, updated_at`,
+      created_by, created_at,broker_id,project_id,plot_id, updated_at`,
     [
       name,
       phone,
@@ -87,6 +92,8 @@ async function createLead(data, createdBy = null) {
       notes || null,
       createdBy,
       brokerId,
+      projectId,
+      plotId,
     ],
   );
 
