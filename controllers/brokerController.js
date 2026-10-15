@@ -336,7 +336,6 @@ async function updateBroker(req, res, next) {
 
 async function getAllBrokers(req, res, next) {
   try {
-    console.log("i am hitted");
     const brokers = await brokerService.getAllBrokers();
 
     return res.status(200).json({
