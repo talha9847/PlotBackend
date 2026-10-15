@@ -17,4 +17,10 @@ router.get(
   plotController.getPlotsByProjectUuid,
 );
 
+router.get(
+  "/plots/dropdown",
+  auth.authenticate,
+  plotController.getPlotsDropdown,
+);
+
 module.exports = router;

@@ -109,8 +109,50 @@ const getPlotsByProjectUuid = async (req, res, next) => {
   }
 };
 
+async function getPlotsDropdown(req, res) {
+  try {
+    const { projectId, search } = req.query;
+
+    if (
+      projectId !== undefined &&
+      (!/^\d+$/.test(projectId) || Number(projectId) < 1)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid projectId",
+      });
+    }
+
+    if (search !== undefined && typeof search !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid search parameter",
+      });
+    }
+
+    const plots = await plotService.getPlotsDropdown({
+      projectId,
+      search,
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: plots.length,
+      data: plots,
+    });
+  } catch (error) {
+    console.error("Get plots dropdown error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch plots",
+    });
+  }
+}
+
 module.exports = {
   getProjects,
   getPlotStats,
   getPlotsByProjectUuid,
+  getPlotsDropdown,
 };

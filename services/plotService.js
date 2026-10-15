@@ -220,8 +220,44 @@ const getPlotsByProjectUuid = async (uuid, options = {}) => {
   };
 };
 
+async function getPlotsDropdown({ projectId, search }) {
+  const queryString = `
+    SELECT
+      p.id,
+      p.uuid,
+      p.plot_number AS name,
+      p.status
+    FROM plots p
+    INNER JOIN projects pr
+      ON pr.id = p.project_id
+    WHERE p.deleted_at IS NULL
+      AND pr.deleted_at IS NULL
+      AND p.status <> 'booked'
+      AND ($1::bigint IS NULL OR p.project_id = $1)
+      AND (
+        $2::text IS NULL
+        OR p.plot_number ILIKE '%' || $2 || '%'
+      )
+    ORDER BY
+      CASE
+        WHEN LOWER(p.plot_number) = LOWER($2) THEN 0
+        ELSE 1
+      END,
+      p.plot_number ASC
+    LIMIT 10;
+  `;
+
+  const result = await query(queryString, [
+    projectId || null,
+    search?.trim() || null,
+  ]);
+
+  return result.rows;
+}
+
 module.exports = {
   getProjects,
   getPlotStats,
   getPlotsByProjectUuid,
+  getPlotsDropdown,
 };

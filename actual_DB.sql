@@ -87,8 +87,6 @@ CREATE INDEX idx_brokers_city
 CREATE INDEX idx_brokers_deleted_at
     ON brokers (deleted_at);
 
-
-
 CREATE TABLE leads (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
@@ -106,7 +104,12 @@ CREATE TABLE leads (
                 'other'
             )
         ),
-    broker_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    project_id BIGINT
+        REFERENCES projects(id) ON DELETE RESTRICT,
+    plot_id BIGINT
+        REFERENCES plots(id) ON DELETE RESTRICT,
+    broker_id BIGINT
+        REFERENCES brokers(id) ON DELETE SET NULL,
     address_line1 TEXT,
     address_line2 TEXT,
     city VARCHAR(100),
@@ -115,12 +118,24 @@ CREATE TABLE leads (
     postal_code VARCHAR(20),
     country_code CHAR(2) NOT NULL DEFAULT 'IN',
     notes TEXT,
-    created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_by BIGINT
+        REFERENCES users(id) ON DELETE SET NULL,
+    updated_by BIGINT
+        REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ
 );
+
+-- Indexes
+CREATE INDEX idx_leads_project_id
+    ON leads(project_id);
+CREATE INDEX idx_leads_plot_id
+    ON leads(plot_id);
+CREATE INDEX idx_leads_broker_id
+    ON leads(broker_id);
+CREATE INDEX idx_leads_deleted_at
+    ON leads(deleted_at);
 
 
 CREATE TABLE bookings (
