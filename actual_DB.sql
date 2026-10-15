@@ -54,3 +54,26 @@ CREATE TABLE plots (
  deleted_at TIMESTAMPTZ,
  UNIQUE(project_id,plot_number)
 );
+
+
+
+CREATE TABLE customers (
+ id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(), 
+ name VARCHAR(100) NOT NULL, 
+ phone VARCHAR(30) NOT NULL, 
+ alternate_phone VARCHAR(30),
+ email VARCHAR(254),
+ customer_type VARCHAR(20) NOT NULL DEFAULT 'individual' CHECK(customer_type IN ('individual','company','partnership','trust','other')),
+ address_line1 TEXT,
+ address_line2 TEXT,
+ city VARCHAR(100), district VARCHAR(100), state VARCHAR(100),
+ postal_code VARCHAR(20), 
+ country_code CHAR(2) NOT NULL DEFAULT 'IN',
+ notes TEXT,
+ created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+ updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ deleted_at TIMESTAMPTZ
+);
