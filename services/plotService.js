@@ -69,12 +69,112 @@ const getPlotStats = async (uuid) => {
 };
 
 // 3. Plot details for one project UUID
-const getPlotsByProjectUuid = async (uuid) => {
+
+const getPlotsByProjectUuid = async (uuid, options = {}) => {
   const project = await findProjectByUuid(uuid);
 
   if (!project) {
     return null;
   }
+
+  const {
+    page = 1,
+    limit = 10,
+    search = "",
+    sortBy = "plot_number",
+    sortOrder = "asc",
+    status = "",
+    plotType = "",
+  } = options;
+
+  // Pagination
+  const currentPage = Math.max(1, Number.parseInt(page, 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 10));
+  const offset = (currentPage - 1) * pageSize;
+
+  const SORT_COLUMNS = {
+    id: "p.id",
+    plot_number: "p.plot_number",
+    plot_type: "p.plot_type",
+    price: "p.base_price",
+    status: "p.status",
+    created_at: "p.created_at",
+    updated_at: "p.updated_at",
+  };
+
+  const safeSortBy = SORT_COLUMNS[sortBy] ? sortBy : "plot_number";
+  const safeSortOrder =
+    String(sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC";
+
+  const VALID_STATUSES = [
+    "available",
+    "reserved",
+    "booked",
+    "sold",
+    "blocked",
+    "under_development",
+  ];
+
+  const VALID_PLOT_TYPES = [
+    "residential",
+    "commercial",
+    "industrial",
+    "agricultural",
+    "other",
+  ];
+
+  // Build parameterized filters
+  const conditions = ["p.project_id = $1", "p.deleted_at IS NULL"];
+
+  const params = [project.id];
+
+  if (String(search).trim()) {
+    params.push(`%${String(search).trim()}%`);
+    const searchParam = `$${params.length}`;
+
+    conditions.push(`(
+      p.plot_number ILIKE ${searchParam}
+      OR p.plot_type ILIKE ${searchParam}
+      OR p.status ILIKE ${searchParam}
+      OR COALESCE(p.notes, '') ILIKE ${searchParam}
+    )`);
+  }
+
+  if (status) {
+    if (!VALID_STATUSES.includes(status)) {
+      throw new Error("Invalid plot status filter");
+    }
+
+    params.push(status);
+    conditions.push(`p.status = $${params.length}`);
+  }
+
+  if (plotType) {
+    if (!VALID_PLOT_TYPES.includes(plotType)) {
+      throw new Error("Invalid plot type filter");
+    }
+
+    params.push(plotType);
+    conditions.push(`p.plot_type = $${params.length}`);
+  }
+
+  const whereClause = conditions.join(" AND ");
+
+  // Count matching plots before applying pagination
+  const countResult = await query(
+    `
+      SELECT COUNT(*)::INTEGER AS total
+      FROM plots p
+      WHERE ${whereClause}
+    `,
+    params,
+  );
+
+  const total = Number(countResult.rows[0]?.total ?? 0);
+
+  // Fetch current page
+  const limitParam = `$${params.length + 1}`;
+  const offsetParam = `$${params.length + 2}`;
 
   const result = await query(
     `
@@ -90,12 +190,17 @@ const getPlotsByProjectUuid = async (uuid) => {
         p.created_at AS "createdAt",
         p.updated_at AS "updatedAt"
       FROM plots p
-      WHERE p.project_id = $1
-        AND p.deleted_at IS NULL
-      ORDER BY p.plot_number ASC
+      WHERE ${whereClause}
+      ORDER BY
+        ${SORT_COLUMNS[safeSortBy]} ${safeSortOrder} NULLS LAST,
+        p.id ASC
+      LIMIT ${limitParam}
+      OFFSET ${offsetParam}
     `,
-    [project.id],
+    [...params, pageSize, offset],
   );
+
+  const totalPages = Math.ceil(total / pageSize);
 
   return {
     project: {
@@ -104,6 +209,14 @@ const getPlotsByProjectUuid = async (uuid) => {
       name: project.name,
     },
     plots: result.rows,
+    pagination: {
+      page: currentPage,
+      limit: pageSize,
+      total,
+      totalPages,
+      hasNextPage: currentPage < totalPages,
+      hasPreviousPage: currentPage > 1 && total > 0,
+    },
   };
 };
 

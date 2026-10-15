@@ -50,6 +50,7 @@ const getPlotStats = async (req, res, next) => {
 };
 
 // GET /api/plots/projects/:uuid
+
 const getPlotsByProjectUuid = async (req, res, next) => {
   try {
     const { uuid } = req.params;
@@ -61,7 +62,25 @@ const getPlotsByProjectUuid = async (req, res, next) => {
       });
     }
 
-    const result = await plotService.getPlotsByProjectUuid(uuid);
+    const {
+      page = "1",
+      limit = "10",
+      search = "",
+      sortBy = "plot_number",
+      sortOrder = "asc",
+      status = "",
+      plotType = "",
+    } = req.query;
+
+    const result = await plotService.getPlotsByProjectUuid(uuid, {
+      page,
+      limit,
+      search,
+      sortBy,
+      sortOrder,
+      status,
+      plotType,
+    });
 
     if (!result) {
       return res.status(404).json({
@@ -76,6 +95,16 @@ const getPlotsByProjectUuid = async (req, res, next) => {
       data: result,
     });
   } catch (error) {
+    if (
+      error.message === "Invalid plot status filter" ||
+      error.message === "Invalid plot type filter"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
     next(error);
   }
 };
