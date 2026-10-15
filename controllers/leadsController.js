@@ -248,7 +248,7 @@ async function getLeadByUuid(req, res, next) {
 const updateLead = async (req, res, next) => {
   try {
     const { uuid } = req.params;
-    const {
+    let {
       name,
       phone,
       email,
@@ -263,7 +263,16 @@ const updateLead = async (req, res, next) => {
       state,
       postal_code,
       notes,
+      brokerId,
+      projectId,
+      plotId,
     } = req.body;
+
+    projectId =
+      projectId === "" || projectId == null ? null : Number(projectId);
+
+    plotId = plotId === "" || plotId == null ? null : Number(plotId);
+    if (brokerId || brokerId == 0) brokerId = 1;
 
     if (!name?.trim() || !phone?.trim()) {
       return res.status(400).json({
@@ -289,6 +298,9 @@ const updateLead = async (req, res, next) => {
         state: state?.trim() || null,
         postal_code: postal_code?.trim() || null,
         notes: notes?.trim() || null,
+        brokerId,
+        projectId,
+        plotId,
       },
       req.user?.id,
     );

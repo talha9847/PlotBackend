@@ -43,7 +43,6 @@ async function createLead(data, createdBy = null) {
     plotId,
   } = data;
 
-
   const result = await query(
     `INSERT INTO leads (
       name,
@@ -116,6 +115,8 @@ async function getLeads({
     updated_at: "l.updated_at",
     lead_type: "l.lead_type",
     broker_name: "u.full_name",
+    project_name: "pr.name",
+    plot_number: "p.plot_number",
   };
 
   const sortColumn = sortColumns[sortBy] || "l.created_at";
@@ -139,6 +140,8 @@ async function getLeads({
       OR COALESCE(l.state, '') ILIKE $${index}
       OR COALESCE(l.postal_code, '') ILIKE $${index}
       OR COALESCE(u.full_name, '') ILIKE $${index}
+      OR COALESCE(pr.name, '') ILIKE $${index}
+      OR COALESCE(p.plot_number, '') ILIKE $${index}
     )`);
   }
 
@@ -151,12 +154,20 @@ async function getLeads({
 
   const joins = `
     FROM leads l
+
     LEFT JOIN users u
       ON u.id = l.broker_id
       AND u.deleted_at IS NULL
+
+    LEFT JOIN projects pr
+      ON pr.id = l.project_id
+      AND pr.deleted_at IS NULL
+
+    LEFT JOIN plots p
+      ON p.id = l.plot_id
+      AND p.deleted_at IS NULL
   `;
 
-  // Count uses the same joins and filters as the data query.
   const countResult = await query(
     `SELECT COUNT(*)::int AS total
      ${joins}
@@ -181,6 +192,14 @@ async function getLeads({
        l.email,
        l.lead_type,
        l.company_name,
+
+       l.project_id,
+       pr.name AS project_name,
+
+       l.plot_id,
+       p.plot_number AS plot_number,
+       p.status AS plot_status,
+
        l.address_line1,
        l.address_line2,
        l.city,
@@ -189,11 +208,14 @@ async function getLeads({
        l.postal_code,
        l.country_code,
        l.notes,
+
        l.created_by,
        l.created_at,
        l.updated_at,
+
        l.broker_id,
        u.full_name AS broker_name
+
      ${joins}
      WHERE ${whereClause}
      ORDER BY ${sortColumn} ${direction}, l.id DESC
@@ -234,63 +256,60 @@ async function getLeadByUuid(uuid) {
 }
 
 const updateLeadByUuid = async (uuid, data, updatedBy) => {
-  const {
-    name,
-    phone,
-    email,
-    lead_type,
-    country_code,
-    alternate_phone,
-    company_name,
-    address_line1,
-    address_line2,
-    city,
-    district,
-    state,
-    postal_code,
-    notes,
-  } = data;
+  const fieldMap = {
+    name: "name",
+    phone: "phone",
+    email: "email",
+    lead_type: "lead_type",
+    country_code: "country_code",
+    alternate_phone: "alternate_phone",
+    company_name: "company_name",
+    address_line1: "address_line1",
+    address_line2: "address_line2",
+    city: "city",
+    district: "district",
+    state: "state",
+    postal_code: "postal_code",
+    notes: "notes",
+    brokerId: "broker_id",
+    projectId: "project_id",
+    plotId: "plot_id",
+  };
+
+  const updates = [];
+  const values = [];
+  let index = 1;
+
+  for (const [key, column] of Object.entries(fieldMap)) {
+    if (
+      Object.hasOwn(data, key) &&
+      data[key] !== null &&
+      data[key] !== undefined
+    ) {
+      updates.push(`${column} = $${index++}`);
+      values.push(data[key]);
+    }
+  }
+
+  if (updatedBy !== null && updatedBy !== undefined) {
+    updates.push(`updated_by = $${index++}`);
+    values.push(updatedBy);
+  }
+
+  if (updates.length === 0) {
+    return null;
+  }
+
+  updates.push("updated_at = NOW()");
+  values.push(uuid);
 
   const { rows } = await query(
     `UPDATE leads
-     SET
-       name = $1,
-       phone = $2,
-       email = $3,
-       lead_type = $4,
-       country_code = $5,
-       alternate_phone = $6,
-       company_name = $7,
-       address_line1 = $8,
-       address_line2 = $9,
-       city = $10,
-       district = $11,
-       state = $12,
-       postal_code = $13,
-       notes = $14,
-       updated_by = $15,
-       updated_at = NOW()
-     WHERE uuid = $16
+     SET ${updates.join(", ")}
+     WHERE uuid = $${index}
        AND deleted_at IS NULL
      RETURNING *`,
-    [
-      name,
-      phone,
-      email ?? null,
-      lead_type,
-      country_code ?? "+91",
-      alternate_phone ?? null,
-      company_name ?? null,
-      address_line1 ?? null,
-      address_line2 ?? null,
-      city ?? null,
-      district ?? null,
-      state ?? null,
-      postal_code ?? null,
-      notes ?? null,
-      updatedBy ?? null,
-      uuid,
-    ],
+    values,
   );
 
   return rows[0] ?? null;
