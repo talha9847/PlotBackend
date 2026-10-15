@@ -8,7 +8,8 @@ const cookieParser = require("cookie-parser");
 const authRoutes = require("./routes/authRoutes");
 const projectRoutes = require("./routes/projectRoutes");
 const plotRoutes = require("./routes/plotRoutes");
-const customerRoutes = require("./routes/customerRoutes");
+const leadRoutes = require("./routes/leadRoutes");
+const brokerRoutes = require("./routes/brokerRoutes");
 
 // Middleware
 app.use(
@@ -53,7 +54,8 @@ app.get("/api/health", async (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/plots", plotRoutes);
-app.use("/api/customers", customerRoutes);
+app.use("/api/leads", leadRoutes);
+app.use("/api/brokers", brokerRoutes);
 
 // 404 handler
 app.use((req, res) => {

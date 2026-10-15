@@ -57,23 +57,89 @@ CREATE TABLE plots (
 
 
 
-CREATE TABLE customers (
+CREATE TABLE brokers (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    name VARCHAR(100) NOT NULL,
+    phone VARCHAR(30)  UNIQUE NOT NULL,
+    alternate_phone VARCHAR(30),
+    email VARCHAR(254) UNIQUE NOT NULL,
+    address_line1 TEXT,
+    address_line2 TEXT,
+    city VARCHAR(100),
+    district VARCHAR(100),
+    state VARCHAR(100),
+    postal_code VARCHAR(20),
+    country_code CHAR(2) NOT NULL DEFAULT 'IN',
+    notes TEXT,
+    created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
+);
+CREATE INDEX idx_brokers_phone
+    ON brokers (phone);
+CREATE INDEX idx_brokers_email
+    ON brokers (email);
+CREATE INDEX idx_brokers_city
+    ON brokers (city);
+CREATE INDEX idx_brokers_deleted_at
+    ON brokers (deleted_at);
+
+
+
+CREATE TABLE leads (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    name VARCHAR(100) NOT NULL,
+    phone VARCHAR(30) UNIQUE NOT NULL,
+    alternate_phone VARCHAR(30),
+    email VARCHAR(254),
+    customer_type VARCHAR(20) NOT NULL DEFAULT 'individual'
+        CHECK (
+            customer_type IN (
+                'individual',
+                'company',
+                'partnership',
+                'trust',
+                'other'
+            )
+        ),
+    broker_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    address_line1 TEXT,
+    address_line2 TEXT,
+    city VARCHAR(100),
+    district VARCHAR(100),
+    state VARCHAR(100),
+    postal_code VARCHAR(20),
+    country_code CHAR(2) NOT NULL DEFAULT 'IN',
+    notes TEXT,
+    created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
+);
+
+
+CREATE TABLE bookings (
  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(), 
- name VARCHAR(100) NOT NULL, 
- phone VARCHAR(30) NOT NULL, 
- alternate_phone VARCHAR(30),
- email VARCHAR(254),
- customer_type VARCHAR(20) NOT NULL DEFAULT 'individual' CHECK(customer_type IN ('individual','company','partnership','trust','other')),
- address_line1 TEXT,
- address_line2 TEXT,
- city VARCHAR(100), district VARCHAR(100), state VARCHAR(100),
- postal_code VARCHAR(20), 
- country_code CHAR(2) NOT NULL DEFAULT 'IN',
- notes TEXT,
- created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
- updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
- created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- deleted_at TIMESTAMPTZ
+ booking_number VARCHAR(80) NOT NULL UNIQUE,
+ project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+ plot_id BIGINT NOT NULL REFERENCES plots(id) ON DELETE RESTRICT,
+ customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+ booking_date DATE NOT NULL DEFAULT CURRENT_DATE,
+ reserved_until TIMESTAMPTZ,
+ agreed_price NUMERIC(14,2) NOT NULL CHECK(agreed_price >= 0),
+ discount_amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(discount_amount >= 0),
+ tax_amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(tax_amount >= 0),
+ total_amount NUMERIC(14,2) NOT NULL CHECK(total_amount >= 0),
+ booking_amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(booking_amount >= 0),
+ status VARCHAR(24) NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reserved','confirmed','cancelled','completed','refunded')),
+ cancellation_reason TEXT, notes TEXT, 
+ sales_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+ created_by BIGINT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ CHECK(discount_amount <= agreed_price), CHECK(booking_amount <= total_amount)
 );

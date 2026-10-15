@@ -2,18 +2,18 @@ async function up(client) {
   await client.query(`
     CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-    CREATE TABLE IF NOT EXISTS customers (
+    CREATE TABLE IF NOT EXISTS leads (
       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
 
       name VARCHAR(100) NOT NULL,
-      phone VARCHAR(30) NOT NULL,
+      phone VARCHAR(30) UNIQUE NOT NULL,
       alternate_phone VARCHAR(30),
       email VARCHAR(254),
 
-      customer_type VARCHAR(20) NOT NULL DEFAULT 'individual'
+      lead_type VARCHAR(20) NOT NULL DEFAULT 'individual'
         CHECK (
-          customer_type IN (
+          lead_type IN (
             'individual',
             'company',
             'partnership',
@@ -23,6 +23,8 @@ async function up(client) {
         ),
 
       company_name VARCHAR(200),
+
+      broker_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
 
       address_line1 TEXT,
       address_line2 TEXT,
@@ -42,27 +44,30 @@ async function up(client) {
       deleted_at TIMESTAMPTZ
     );
 
-    CREATE INDEX IF NOT EXISTS idx_customers_name
-      ON customers (LOWER(name))
+    CREATE INDEX IF NOT EXISTS idx_leads_name
+      ON leads (LOWER(name))
       WHERE deleted_at IS NULL;
 
-    CREATE INDEX IF NOT EXISTS idx_customers_phone
-      ON customers (phone)
+    CREATE INDEX IF NOT EXISTS idx_leads_phone
+      ON leads (phone)
       WHERE deleted_at IS NULL;
 
-    CREATE INDEX IF NOT EXISTS idx_customers_email_lower
-      ON customers (LOWER(email))
+    CREATE INDEX IF NOT EXISTS idx_leads_email_lower
+      ON leads (LOWER(email))
       WHERE email IS NOT NULL
         AND deleted_at IS NULL;
 
-    CREATE INDEX IF NOT EXISTS idx_customers_type
-      ON customers (customer_type)
+    CREATE INDEX IF NOT EXISTS idx_leads_type
+      ON leads (lead_type)
       WHERE deleted_at IS NULL;
 
-    CREATE INDEX IF NOT EXISTS idx_customers_created_by
-      ON customers (created_by);
+    CREATE INDEX IF NOT EXISTS idx_leads_broker_id
+      ON leads (broker_id);
 
-    CREATE OR REPLACE FUNCTION set_customers_updated_at()
+    CREATE INDEX IF NOT EXISTS idx_leads_created_by
+      ON leads (created_by);
+
+    CREATE OR REPLACE FUNCTION set_leads_updated_at()
     RETURNS TRIGGER AS $$
     BEGIN
       NEW.updated_at = NOW();
@@ -70,12 +75,12 @@ async function up(client) {
     END;
     $$ LANGUAGE plpgsql;
 
-    DROP TRIGGER IF EXISTS trg_customers_updated_at ON customers;
+    DROP TRIGGER IF EXISTS trg_leads_updated_at ON leads;
 
-    CREATE TRIGGER trg_customers_updated_at
-      BEFORE UPDATE ON customers
+    CREATE TRIGGER trg_leads_updated_at
+      BEFORE UPDATE ON leads
       FOR EACH ROW
-      EXECUTE FUNCTION set_customers_updated_at();
+      EXECUTE FUNCTION set_leads_updated_at();
   `);
 }
 

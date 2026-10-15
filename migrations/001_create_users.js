@@ -21,6 +21,7 @@ async function up(client) {
             'accountant',
             'sales',
             'viewer'
+            'broker'
           )
         ),
 

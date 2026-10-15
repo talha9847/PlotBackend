@@ -1,4 +1,4 @@
-const customerService = require("../services/customerService");
+const leadService = require("../services/leadService");
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -15,10 +15,10 @@ const validOptionalString = (value, maxLength) =>
   value === "" ||
   (typeof value === "string" && value.trim().length <= maxLength);
 
-async function createCustomer(req, res, next) {
+async function createLead(req, res, next) {
   try {
     const body = req.body || {};
-
+    if (!body.brokerId || body.brokerId == 0) body.brokerId = 1;
     if (
       typeof body.name !== "string" ||
       !body.name.trim() ||
@@ -29,16 +29,16 @@ async function createCustomer(req, res, next) {
     ) {
       return res.status(400).json({
         success: false,
-        message: "Customer name and phone are required",
+        message: "Lead name and phone are required",
       });
     }
 
-    const customerType = body.customer_type || "individual";
+    const leadType = body.lead_type || "individual";
 
-    if (!customerService.CUSTOMER_TYPES.includes(customerType)) {
+    if (!leadService.CUSTOMER_TYPES.includes(leadType)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid customer type",
+        message: "Invalid lead type",
       });
     }
 
@@ -102,15 +102,14 @@ async function createCustomer(req, res, next) {
       });
     }
 
-  
-
-    const customer = await customerService.createCustomer(
+    const lead = await leadService.createLead(
       {
         name: body.name.trim(),
         phone: body.phone.trim(),
         alternate_phone: optionalString(body.alternate_phone),
         email,
-        customer_type: customerType,
+        brokerId: body.brokerId,
+        lead_type: leadType,
         company_name: optionalString(body.company_name),
         address_line1: optionalString(body.address_line1),
         address_line2: optionalString(body.address_line2),
@@ -126,15 +125,15 @@ async function createCustomer(req, res, next) {
 
     return res.status(201).json({
       success: true,
-      message: "Customer created successfully",
-      data: { customer },
+      message: "Lead created successfully",
+      data: { lead },
     });
   } catch (error) {
     next(error);
   }
 }
 
-async function getCustomers(req, res, next) {
+async function getLeads(req, res, next) {
   try {
     const {
       page = "1",
@@ -142,7 +141,7 @@ async function getCustomers(req, res, next) {
       search = "",
       sortBy = "created_at",
       sortOrder = "desc",
-      customerType = "",
+      leadType = "",
     } = req.query;
 
     const parsedPage = Number(page);
@@ -172,36 +171,33 @@ async function getCustomers(req, res, next) {
       search.length > 200 ||
       typeof sortBy !== "string" ||
       typeof sortOrder !== "string" ||
-      typeof customerType !== "string"
+      typeof leadType !== "string"
     ) {
       return res.status(400).json({
         success: false,
-        message: "Invalid customer query parameters",
+        message: "Invalid lead query parameters",
       });
     }
 
-    if (
-      customerType &&
-      !customerService.CUSTOMER_TYPES.includes(customerType)
-    ) {
+    if (leadType && !leadService.CUSTOMER_TYPES.includes(leadType)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid customer type filter",
+        message: "Invalid lead type filter",
       });
     }
 
-    const result = await customerService.getCustomers({
+    const result = await leadService.getLeads({
       page: parsedPage,
       limit: parsedLimit,
       search: search.trim(),
       sortBy,
       sortOrder,
-      customerType,
+      leadType,
     });
 
     return res.status(200).json({
       success: true,
-      message: "Customers fetched successfully",
+      message: "Leads fetched successfully",
       data: result,
     });
   } catch (error) {
@@ -209,44 +205,44 @@ async function getCustomers(req, res, next) {
   }
 }
 
-async function getCustomerByUuid(req, res, next) {
+async function getLeadByUuid(req, res, next) {
   try {
     const { uuid } = req.params;
 
     if (!UUID_REGEX.test(uuid)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid customer UUID",
+        message: "Invalid lead UUID",
       });
     }
 
-    const customer = await customerService.getCustomerByUuid(uuid);
+    const lead = await leadService.getLeadByUuid(uuid);
 
-    if (!customer) {
+    if (!lead) {
       return res.status(404).json({
         success: false,
-        message: "Customer not found",
+        message: "Lead not found",
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Customer fetched successfully",
-      data: { customer },
+      message: "Lead fetched successfully",
+      data: { lead },
     });
   } catch (error) {
     next(error);
   }
 }
 
-const updateCustomer = async (req, res, next) => {
+const updateLead = async (req, res, next) => {
   try {
     const { uuid } = req.params;
     const {
       name,
       phone,
       email,
-      customer_type,
+      lead_type,
       country_code,
       alternate_phone,
       company_name,
@@ -266,13 +262,13 @@ const updateCustomer = async (req, res, next) => {
       });
     }
 
-    const customer = await customerService.updateCustomerByUuid(
+    const lead = await leadService.updateLeadByUuid(
       uuid,
       {
         name: name.trim(),
         phone: phone.trim(),
         email: email?.trim() || null,
-        customer_type: customer_type || "individual",
+        lead_type: lead_type || "individual",
         country_code: country_code || "+91",
         alternate_phone: alternate_phone?.trim() || null,
         company_name: company_name?.trim() || null,
@@ -287,17 +283,17 @@ const updateCustomer = async (req, res, next) => {
       req.user?.id,
     );
 
-    if (!customer) {
+    if (!lead) {
       return res.status(404).json({
         success: false,
-        message: "Customer not found.",
+        message: "Lead not found.",
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Customer updated successfully.",
-      data: customer,
+      message: "Lead updated successfully.",
+      data: lead,
     });
   } catch (error) {
     next(error);
@@ -305,8 +301,8 @@ const updateCustomer = async (req, res, next) => {
 };
 
 module.exports = {
-  createCustomer,
-  getCustomers,
-  getCustomerByUuid,
-  updateCustomer,
+  createLead,
+  getLeads,
+  getLeadByUuid,
+  updateLead,
 };

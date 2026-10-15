@@ -14,7 +14,7 @@ const SORT_COLUMNS = {
   name: "name",
   phone: "phone",
   email: "email",
-  customer_type: "customer_type",
+  lead_type: "lead_type",
   company_name: "company_name",
   city: "city",
   state: "state",
@@ -22,13 +22,14 @@ const SORT_COLUMNS = {
   updated_at: "updated_at",
 };
 
-async function createCustomer(data, createdBy = null) {
+async function createLead(data, createdBy = null) {
   const {
     name,
     phone,
     alternate_phone,
     email,
-    customer_type = "individual",
+    brokerId,
+    lead_type = "individual",
     company_name,
     address_line1,
     address_line2,
@@ -41,12 +42,12 @@ async function createCustomer(data, createdBy = null) {
   } = data;
 
   const result = await query(
-    `INSERT INTO customers (
+    `INSERT INTO leads (
       name,
       phone,
       alternate_phone,
       email,
-      customer_type,
+      lead_type,
       company_name,
       address_line1,
       address_line2,
@@ -56,24 +57,25 @@ async function createCustomer(data, createdBy = null) {
       postal_code,
       country_code,
       notes,
-      created_by
+      created_by,
+      broker_id
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8,
-      $9, $10, $11, $12, $13, $14, $15
+      $9, $10, $11, $12, $13, $14, $15, $16
     )
     RETURNING
       id, uuid, name, phone, alternate_phone, email,
-      customer_type, company_name, address_line1,
+      lead_type, company_name, address_line1,
       address_line2, city, district, state, postal_code,
       country_code, notes,
-      created_by, created_at, updated_at`,
+      created_by, created_at,broker_id, updated_at`,
     [
       name,
       phone,
       alternate_phone || null,
       email || null,
-      customer_type,
+      lead_type,
       company_name || null,
       address_line1 || null,
       address_line2 || null,
@@ -84,57 +86,73 @@ async function createCustomer(data, createdBy = null) {
       country_code,
       notes || null,
       createdBy,
+      brokerId,
     ],
   );
 
   return result.rows[0];
 }
 
-async function getCustomers({
+async function getLeads({
   page = 1,
   limit = 10,
   search = "",
   sortBy = "created_at",
   sortOrder = "desc",
-  customerType = "",
+  leadType = "",
 }) {
   const offset = (page - 1) * limit;
 
-  // Whitelist sort columns and direction.
-  const sortColumn = SORT_COLUMNS[sortBy] || "created_at";
+  const sortColumns = {
+    name: "l.name",
+    created_at: "l.created_at",
+    updated_at: "l.updated_at",
+    lead_type: "l.lead_type",
+    broker_name: "u.full_name",
+  };
+
+  const sortColumn = sortColumns[sortBy] || "l.created_at";
   const direction = String(sortOrder).toLowerCase() === "asc" ? "ASC" : "DESC";
 
-  const conditions = ["deleted_at IS NULL"];
+  const conditions = ["l.deleted_at IS NULL"];
   const values = [];
 
-  if (search) {
-    values.push(`%${search}%`);
+  if (search.trim()) {
+    values.push(`%${search.trim()}%`);
     const index = values.length;
 
     conditions.push(`(
-      name ILIKE $${index}
-      OR phone ILIKE $${index}
-      OR COALESCE(alternate_phone, '') ILIKE $${index}
-      OR COALESCE(email, '') ILIKE $${index}
-      OR COALESCE(company_name, '') ILIKE $${index}
-      OR COALESCE(city, '') ILIKE $${index}
-      OR COALESCE(district, '') ILIKE $${index}
-      OR COALESCE(state, '') ILIKE $${index}
-      OR COALESCE(postal_code, '') ILIKE $${index}
+      l.name ILIKE $${index}
+      OR l.phone ILIKE $${index}
+      OR COALESCE(l.alternate_phone, '') ILIKE $${index}
+      OR COALESCE(l.email, '') ILIKE $${index}
+      OR COALESCE(l.company_name, '') ILIKE $${index}
+      OR COALESCE(l.city, '') ILIKE $${index}
+      OR COALESCE(l.district, '') ILIKE $${index}
+      OR COALESCE(l.state, '') ILIKE $${index}
+      OR COALESCE(l.postal_code, '') ILIKE $${index}
+      OR COALESCE(u.full_name, '') ILIKE $${index}
     )`);
   }
 
-  if (customerType) {
-    values.push(customerType);
-    conditions.push(`customer_type = $${values.length}`);
+  if (leadType) {
+    values.push(leadType);
+    conditions.push(`l.lead_type = $${values.length}`);
   }
 
   const whereClause = conditions.join(" AND ");
 
-  // Count uses exactly the same filters as the data query.
+  const joins = `
+    FROM leads l
+    LEFT JOIN users u
+      ON u.id = l.broker_id
+      AND u.deleted_at IS NULL
+  `;
+
+  // Count uses the same joins and filters as the data query.
   const countResult = await query(
     `SELECT COUNT(*)::int AS total
-     FROM customers
+     ${joins}
      WHERE ${whereClause}`,
     values,
   );
@@ -143,24 +161,42 @@ async function getCustomers({
   const totalPages = Math.ceil(total / limit);
 
   const dataValues = [...values, limit, offset];
+  const limitIndex = values.length + 1;
+  const offsetIndex = values.length + 2;
 
   const result = await query(
     `SELECT
-       id, uuid, name, phone, alternate_phone, email,
-       customer_type, company_name, address_line1,
-       address_line2, city, district, state, postal_code,
-       country_code, notes,
-       created_by, created_at, updated_at
-     FROM customers
+       l.id,
+       l.uuid,
+       l.name,
+       l.phone,
+       l.alternate_phone,
+       l.email,
+       l.lead_type,
+       l.company_name,
+       l.address_line1,
+       l.address_line2,
+       l.city,
+       l.district,
+       l.state,
+       l.postal_code,
+       l.country_code,
+       l.notes,
+       l.created_by,
+       l.created_at,
+       l.updated_at,
+       l.broker_id,
+       u.full_name AS broker_name
+     ${joins}
      WHERE ${whereClause}
-     ORDER BY ${sortColumn} ${direction}, id DESC
-     LIMIT $${dataValues.length - 1}
-     OFFSET $${dataValues.length}`,
+     ORDER BY ${sortColumn} ${direction}, l.id DESC
+     LIMIT $${limitIndex}
+     OFFSET $${offsetIndex}`,
     dataValues,
   );
 
   return {
-    customers: result.rows,
+    leads: result.rows,
     pagination: {
       page,
       limit,
@@ -172,15 +208,15 @@ async function getCustomers({
   };
 }
 
-async function getCustomerByUuid(uuid) {
+async function getLeadByUuid(uuid) {
   const result = await query(
     `SELECT
        id, uuid, name, phone, alternate_phone, email,
-       customer_type, company_name, address_line1,
+       lead_type, company_name, address_line1,
        address_line2, city, district, state, postal_code,
        country_code, notes,
        created_by, created_at, updated_at
-     FROM customers
+     FROM leads
      WHERE uuid = $1
        AND deleted_at IS NULL
      LIMIT 1`,
@@ -190,12 +226,12 @@ async function getCustomerByUuid(uuid) {
   return result.rows[0] || null;
 }
 
-const updateCustomerByUuid = async (uuid, data, updatedBy) => {
+const updateLeadByUuid = async (uuid, data, updatedBy) => {
   const {
     name,
     phone,
     email,
-    customer_type,
+    lead_type,
     country_code,
     alternate_phone,
     company_name,
@@ -209,12 +245,12 @@ const updateCustomerByUuid = async (uuid, data, updatedBy) => {
   } = data;
 
   const { rows } = await query(
-    `UPDATE customers
+    `UPDATE leads
      SET
        name = $1,
        phone = $2,
        email = $3,
-       customer_type = $4,
+       lead_type = $4,
        country_code = $5,
        alternate_phone = $6,
        company_name = $7,
@@ -234,7 +270,7 @@ const updateCustomerByUuid = async (uuid, data, updatedBy) => {
       name,
       phone,
       email ?? null,
-      customer_type,
+      lead_type,
       country_code ?? "+91",
       alternate_phone ?? null,
       company_name ?? null,
@@ -254,9 +290,9 @@ const updateCustomerByUuid = async (uuid, data, updatedBy) => {
 };
 
 module.exports = {
-  createCustomer,
-  getCustomers,
-  getCustomerByUuid,
+  createLead,
+  getLeads,
+  getLeadByUuid,
   CUSTOMER_TYPES,
-  updateCustomerByUuid,
+  updateLeadByUuid,
 };
