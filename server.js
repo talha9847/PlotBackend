@@ -10,6 +10,7 @@ const projectRoutes = require("./routes/projectRoutes");
 const plotRoutes = require("./routes/plotRoutes");
 const leadRoutes = require("./routes/leadRoutes");
 const brokerRoutes = require("./routes/brokerRoutes");
+const bookingRoutes = require("./routes/bookingRoutes");
 
 // Middleware
 app.use(
@@ -56,7 +57,7 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/plots", plotRoutes);
 app.use("/api/leads", leadRoutes);
 app.use("/api/brokers", brokerRoutes);
-
+app.use("/api/bookings", bookingRoutes);
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
