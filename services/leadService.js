@@ -314,6 +314,39 @@ const updateLeadByUuid = async (uuid, data, updatedBy) => {
 
   return rows[0] ?? null;
 };
+async function getLeadsDropdown({ search }) {
+  const queryString = `
+    SELECT
+      l.id,
+      l.uuid,
+      l.name,
+      l.phone,
+      l.broker_id AS "brokerId",
+      u.full_name AS "brokerName"
+    FROM leads l
+    LEFT JOIN users u
+      ON u.id = l.broker_id
+      AND u.deleted_at IS NULL
+    WHERE l.deleted_at IS NULL
+      AND (
+        $1::text IS NULL
+        OR l.name ILIKE '%' || $1 || '%'
+        OR l.phone ILIKE '%' || $1 || '%'
+        OR u.full_name ILIKE '%' || $1 || '%'
+      )
+    ORDER BY
+      CASE
+        WHEN LOWER(l.name) = LOWER($1) THEN 0
+        ELSE 1
+      END,
+      l.name ASC
+    LIMIT 10;
+  `;
+
+  const result = await query(queryString, [search?.trim() || null]);
+
+  return result.rows;
+}
 
 module.exports = {
   createLead,
@@ -321,4 +354,5 @@ module.exports = {
   getLeadByUuid,
   CUSTOMER_TYPES,
   updateLeadByUuid,
+  getLeadsDropdown,
 };

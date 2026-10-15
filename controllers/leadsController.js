@@ -322,9 +322,40 @@ const updateLead = async (req, res, next) => {
   }
 };
 
+async function getLeadsDropdown(req, res) {
+  try {
+    const { search } = req.query;
+
+    if (search !== undefined && typeof search !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid search parameter",
+      });
+    }
+
+    const leads = await leadService.getLeadsDropdown({
+      search,
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: leads.length,
+      data: leads,
+    });
+  } catch (error) {
+    console.error("Get leads dropdown error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch leads",
+    });
+  }
+}
+
 module.exports = {
   createLead,
   getLeads,
   getLeadByUuid,
   updateLead,
+  getLeadsDropdown,
 };

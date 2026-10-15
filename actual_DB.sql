@@ -87,6 +87,11 @@ CREATE INDEX idx_brokers_city
 CREATE INDEX idx_brokers_deleted_at
     ON brokers (deleted_at);
 
+
+
+
+
+
 CREATE TABLE leads (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
@@ -104,6 +109,7 @@ CREATE TABLE leads (
                 'other'
             )
         ),
+    is_converted BOOLEAN NOT NULL DEFAULT FALSE,
     project_id BIGINT
         REFERENCES projects(id) ON DELETE RESTRICT,
     plot_id BIGINT
@@ -126,7 +132,6 @@ CREATE TABLE leads (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ
 );
-
 -- Indexes
 CREATE INDEX idx_leads_project_id
     ON leads(project_id);
@@ -138,23 +143,74 @@ CREATE INDEX idx_leads_deleted_at
     ON leads(deleted_at);
 
 
+
+
+
+
+
+
 CREATE TABLE bookings (
  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(), 
  booking_number VARCHAR(80) NOT NULL UNIQUE,
  project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
  plot_id BIGINT NOT NULL REFERENCES plots(id) ON DELETE RESTRICT,
- customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+ lead_id BIGINT NOT NULL REFERENCES leads(id) ON DELETE RESTRICT,
  booking_date DATE NOT NULL DEFAULT CURRENT_DATE,
- reserved_until TIMESTAMPTZ,
  agreed_price NUMERIC(14,2) NOT NULL CHECK(agreed_price >= 0),
  discount_amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(discount_amount >= 0),
  tax_amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(tax_amount >= 0),
  total_amount NUMERIC(14,2) NOT NULL CHECK(total_amount >= 0),
  booking_amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(booking_amount >= 0),
  status VARCHAR(24) NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reserved','confirmed','cancelled','completed','refunded')),
- cancellation_reason TEXT, notes TEXT, 
- sales_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
- created_by BIGINT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ cancellation_reason TEXT, 
+ notes TEXT, 
+ created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  CHECK(discount_amount <= agreed_price), CHECK(booking_amount <= total_amount)
+);
+
+CREATE TABLE customers(
+    id,
+    uuid,
+    lead_id,
+    booking_id,
+    project_id,
+    plot_id,
+    broker_id,
+    total_amount,
+    down_payment,
+    installment_count,
+    frequency VARCHAR(24) NOT NULL DEFAULT 'monthly' CHECK(frequency IN ('weekly','monthly','quarterly','half_yearly','yearly','milestone','custom')),
+    start_date,
+
+
+)
+
+
+CREATE TABLE installments (
+ id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+ customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+ installment_number INTEGER NOT NULL CHECK(installment_number > 0),
+ description VARCHAR(200), due_date DATE NOT NULL,
+ amount_due NUMERIC(14,2) NOT NULL CHECK(amount_due >= 0), 
+ late_fee NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(late_fee >= 0),
+ status VARCHAR(24) NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','partially_paid','paid','overdue','waived','cancelled')),
+ paid_at TIMESTAMPTZ, 
+ notes TEXT,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE(customer_id,installment_number),
+);
+
+
+
+CREATE TABLE installment_reschedules (
+ id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ installment_id BIGINT NOT NULL REFERENCES installments(id) ON DELETE RESTRICT,
+ old_due_date DATE NOT NULL, new_due_date DATE NOT NULL, 
+ reason TEXT NOT NULL,
+ approved_by BIGINT REFERENCES users(id) ON DELETE SET NULL, 
+ created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

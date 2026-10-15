@@ -7,6 +7,7 @@ const auth = require("../middlewares/authMiddleware");
 router.post("/create", auth.authenticate, leadController.createLead);
 
 // GET /api/customers?page=1&limit=10&search=talha
+router.get("/dropdown", auth.authenticate, leadController.getLeadsDropdown);
 router.get("/", auth.authenticate, leadController.getLeads);
 
 router.get("/:uuid", auth.authenticate, leadController.getLeadByUuid);

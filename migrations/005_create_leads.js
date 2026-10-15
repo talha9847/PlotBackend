@@ -25,6 +25,9 @@ async function up(client) {
 
       company_name VARCHAR(200),
 
+      -- Lead conversion status
+      is_converted BOOLEAN NOT NULL DEFAULT FALSE,
+
       -- Project and plot interest
       project_id BIGINT
         REFERENCES projects(id) ON DELETE RESTRICT,
