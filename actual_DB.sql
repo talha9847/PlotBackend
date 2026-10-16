@@ -148,60 +148,143 @@ CREATE INDEX idx_leads_deleted_at
 
 
 
-
 CREATE TABLE bookings (
- id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
- uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(), 
- booking_number VARCHAR(80) NOT NULL UNIQUE,
- project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
- plot_id BIGINT NOT NULL REFERENCES plots(id) ON DELETE RESTRICT,
- lead_id BIGINT NOT NULL REFERENCES leads(id) ON DELETE RESTRICT,
- booking_date DATE NOT NULL DEFAULT CURRENT_DATE,
- agreed_price NUMERIC(14,2) NOT NULL CHECK(agreed_price >= 0),
- discount_amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(discount_amount >= 0),
- tax_amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(tax_amount >= 0),
- total_amount NUMERIC(14,2) NOT NULL CHECK(total_amount >= 0),
- booking_amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(booking_amount >= 0),
- status VARCHAR(24) NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reserved','confirmed','cancelled','completed','refunded')),
- cancellation_reason TEXT, 
- notes TEXT, 
- created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
- created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- CHECK(discount_amount <= agreed_price), CHECK(booking_amount <= total_amount)
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    booking_number VARCHAR(80) NOT NULL UNIQUE,
+    project_id BIGINT NOT NULL
+        REFERENCES projects(id) ON DELETE RESTRICT,
+    plot_id BIGINT NOT NULL
+        REFERENCES plots(id) ON DELETE RESTRICT,
+    lead_id BIGINT NOT NULL
+        REFERENCES leads(id) ON DELETE RESTRICT,
+    customer_id BIGINT
+        REFERENCES customers(id) ON DELETE RESTRICT,
+    booking_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    agreed_price NUMERIC(14,2) NOT NULL
+        CHECK (agreed_price >= 0),
+    discount_amount NUMERIC(14,2) NOT NULL DEFAULT 0
+        CHECK (discount_amount >= 0),
+    tax_amount NUMERIC(14,2) NOT NULL DEFAULT 0
+        CHECK (tax_amount >= 0),
+    total_amount NUMERIC(14,2) NOT NULL
+        CHECK (total_amount >= 0),
+    booking_amount NUMERIC(14,2) NOT NULL DEFAULT 0
+        CHECK (booking_amount >= 0),
+    status VARCHAR(24) NOT NULL DEFAULT 'pending'
+        CHECK (
+            status IN (
+                'pending', 'reserved', 'confirmed',
+                'cancelled', 'completed', 'refunded'
+            )
+        ),
+    cancellation_reason TEXT,
+    notes TEXT,
+    created_by BIGINT
+        REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (discount_amount <= agreed_price),
+    CHECK (booking_amount <= total_amount)
+);
+CREATE INDEX idx_bookings_customer_id
+    ON bookings(customer_id);
+
+
+
+
+CREATE TABLE customers (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    lead_id BIGINT NOT NULL UNIQUE
+        REFERENCES leads(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE customers(
-    id,
-    uuid,
-    lead_id,
-    booking_id,
-    project_id,
-    plot_id,
-    broker_id,
-    total_amount,
-    down_payment,
-    installment_count,
-    frequency VARCHAR(24) NOT NULL DEFAULT 'monthly' CHECK(frequency IN ('weekly','monthly','quarterly','half_yearly','yearly','milestone','custom')),
-    start_date,
 
 
-)
+
+
+CREATE TABLE customer_plans (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    customer_id BIGINT NOT NULL
+        REFERENCES customers(id) ON DELETE RESTRICT,
+    booking_id BIGINT NOT NULL UNIQUE
+        REFERENCES bookings(id) ON DELETE RESTRICT,
+    down_payment NUMERIC(14,2) NOT NULL DEFAULT 0
+        CHECK (down_payment >= 0),
+    installment_count INTEGER NOT NULL
+        CHECK (installment_count > 0),
+    frequency VARCHAR(24) NOT NULL DEFAULT 'monthly'
+        CHECK (
+            frequency IN (
+                'weekly',
+                'monthly',
+                'quarterly',
+                'half_yearly',
+                'yearly',
+                'milestone',
+                'custom'
+            )
+        ),
+    start_date DATE NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'completed', 'cancelled')),
+    notes TEXT,
+    created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_customer_plans_customer_id
+    ON customer_plans(customer_id);
+
+
+
+
+
+
+
 
 
 CREATE TABLE installments (
- id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
- uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
- customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
- installment_number INTEGER NOT NULL CHECK(installment_number > 0),
- description VARCHAR(200), due_date DATE NOT NULL,
- amount_due NUMERIC(14,2) NOT NULL CHECK(amount_due >= 0), 
- late_fee NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(late_fee >= 0),
- status VARCHAR(24) NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','partially_paid','paid','overdue','waived','cancelled')),
- paid_at TIMESTAMPTZ, 
- notes TEXT,
- created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- UNIQUE(customer_id,installment_number),
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    customer_plan_id BIGINT NOT NULL
+        REFERENCES customer_plans(id) ON DELETE RESTRICT,
+    installment_number INTEGER NOT NULL
+        CHECK (installment_number > 0),
+    description VARCHAR(200),
+    due_date DATE NOT NULL,
+    amount_due NUMERIC(14,2) NOT NULL
+        CHECK (amount_due >= 0),
+    amount_paid NUMERIC(14,2) NOT NULL DEFAULT 0
+        CHECK (amount_paid >= 0),
+    late_fee NUMERIC(14,2) NOT NULL DEFAULT 0
+        CHECK (late_fee >= 0),
+    status VARCHAR(24) NOT NULL DEFAULT 'pending'
+        CHECK (
+            status IN (
+                'pending',
+                'partially_paid',
+                'paid',
+                'overdue',
+                'waived',
+                'cancelled'
+            )
+        ),
+    paid_at TIMESTAMPTZ,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (customer_plan_id, installment_number),
+    CHECK (amount_paid <= amount_due + late_fee)
 );
+CREATE INDEX idx_installments_customer_plan_id
+    ON installments(customer_plan_id);
+CREATE INDEX idx_installments_due_date_status
+    ON installments(due_date, status);
 
 
 

@@ -231,9 +231,163 @@ async function getBookings(req, res, next) {
   }
 }
 
+async function confirmBooking(req, res) {
+  try {
+    const { bookingUuid } = req.params;
+    const userId = req.user?.id;
 
+    const {
+      down_payment,
+      installment_count,
+      frequency = "monthly",
+      start_date,
+      status = "active",
+      notes = null,
+    } = req.body;
+
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (!bookingUuid || !uuidRegex.test(bookingUuid)) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid booking UUID is required",
+      });
+    }
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authenticated user not found",
+      });
+    }
+
+    if (
+      down_payment === undefined ||
+      down_payment === null ||
+      down_payment === "" ||
+      !Number.isFinite(Number(down_payment)) ||
+      Number(down_payment) < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Down payment must be a valid non-negative number",
+      });
+    }
+
+    if (
+      installment_count === undefined ||
+      installment_count === null ||
+      installment_count === "" ||
+      !Number.isInteger(Number(installment_count)) ||
+      Number(installment_count) <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Installment count must be a positive integer",
+      });
+    }
+
+    const allowedFrequencies = [
+      "weekly",
+      "monthly",
+      "quarterly",
+      "half_yearly",
+      "yearly",
+      "milestone",
+      "custom",
+    ];
+
+    if (!allowedFrequencies.includes(frequency)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment frequency",
+      });
+    }
+
+    const validDate =
+      typeof start_date === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(start_date) &&
+      !Number.isNaN(Date.parse(`${start_date}T00:00:00Z`)) &&
+      new Date(`${start_date}T00:00:00Z`).toISOString().startsWith(start_date);
+
+    if (!validDate) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid start date in YYYY-MM-DD format is required",
+      });
+    }
+
+    const allowedStatuses = ["active", "completed", "cancelled"];
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment plan status",
+      });
+    }
+
+    if (notes !== null && (typeof notes !== "string" || notes.length > 5000)) {
+      return res.status(400).json({
+        success: false,
+        message: "Notes must be a string of at most 5000 characters",
+      });
+    }
+
+    const result = await bookingService.confirmBooking(
+      bookingUuid,
+      {
+        down_payment: Number(down_payment),
+        installment_count: Number(installment_count),
+        frequency,
+        start_date,
+        status,
+        notes: notes?.trim() || null,
+      },
+      userId,
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Booking confirmed successfully",
+      data: result,
+    });
+  } catch (talha) {
+    console.error("Confirm booking error:", talha);
+
+    if (talha.message === "Booking not found") {
+      return res.status(404).json({
+        success: false,
+        message: talha.message,
+      });
+    }
+
+    if (
+      talha.message === "Booking already has a customer" ||
+      talha.message === "Cannot confirm a cancelled or refunded booking"
+    ) {
+      return res.status(409).json({
+        success: false,
+        message: talha.message,
+      });
+    }
+
+    if (talha.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "A customer plan already exists for this booking",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to confirm booking",
+    });
+  }
+}
 
 module.exports = {
   createBooking,
   getBookings,
+  confirmBooking,
 };

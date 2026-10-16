@@ -17,6 +17,9 @@ async function up(client) {
       lead_id BIGINT NOT NULL
         REFERENCES leads(id) ON DELETE RESTRICT,
 
+      customer_id BIGINT
+        REFERENCES customers(id) ON DELETE RESTRICT,
+
       booking_date DATE NOT NULL DEFAULT CURRENT_DATE,
 
       agreed_price NUMERIC(14,2) NOT NULL
@@ -67,6 +70,9 @@ async function up(client) {
 
     CREATE INDEX IF NOT EXISTS idx_bookings_lead_id
       ON bookings (lead_id);
+
+    CREATE INDEX IF NOT EXISTS idx_bookings_customer_id
+      ON bookings (customer_id);
 
     CREATE INDEX IF NOT EXISTS idx_bookings_status
       ON bookings (status);

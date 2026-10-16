@@ -364,9 +364,121 @@ async function getBookings({
   };
 }
 
+async function confirmBooking(bookingUuid, data, userId) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const {
+      down_payment,
+      installment_count,
+      frequency = "monthly",
+      start_date,
+      status = "active",
+      notes = null,
+    } = data;
+
+    // 1. Get the existing booking and lock it.
+    const bookingResult = await client.query(
+      `
+        SELECT id, lead_id, customer_id, status
+        FROM bookings
+        WHERE uuid = $1
+        FOR UPDATE
+      `,
+      [bookingUuid],
+    );
+
+    if (bookingResult.rowCount === 0) {
+      throw new Error("Booking not found");
+    }
+
+    const booking = bookingResult.rows[0];
+
+    if (booking.status === "cancelled" || booking.status === "refunded") {
+      throw new Error("Cannot confirm a cancelled or refunded booking");
+    }
+
+    if (booking.customer_id) {
+      throw new Error("Booking already has a customer");
+    }
+
+    // 2. Create customer or reuse the existing customer for this lead.
+    const customerResult = await client.query(
+      `
+        INSERT INTO customers (lead_id)
+        VALUES ($1)
+        ON CONFLICT (lead_id)
+        DO UPDATE SET updated_at = NOW()
+        RETURNING id
+      `,
+      [booking.lead_id],
+    );
+
+    const customerId = customerResult.rows[0].id;
+
+    // 3. Update the existing booking with customer_id.
+    await client.query(
+      `
+        UPDATE bookings
+        SET customer_id = $1,
+            status = 'confirmed',
+            updated_at = NOW()
+        WHERE uuid = $2
+      `,
+      [customerId, bookingUuid],
+    );
+
+    // 4. Create the installment plan.
+    const planResult = await client.query(
+      `
+        INSERT INTO customer_plans (
+          customer_id,
+          booking_id,
+          down_payment,
+          installment_count,
+          frequency,
+          start_date,
+          status,
+          notes,
+          created_by
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING *
+      `,
+      [
+        customerId,
+        booking.id,
+        down_payment,
+        installment_count,
+        frequency,
+        start_date,
+        status,
+        notes,
+        userId,
+      ],
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      customer_id: customerId,
+      booking_id: bookingUuid,
+      plan: planResult.rows[0],
+    };
+  } catch (talha_9106704675) {
+    await client.query("ROLLBACK");
+    throw talha_9106704675;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   createBooking,
   getBookings,
   BOOKING_STATUSES,
   SORT_COLUMNS,
+  confirmBooking,
 };
