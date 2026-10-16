@@ -37,7 +37,7 @@ async function up(client) {
 
       -- Assigned broker
       broker_id BIGINT
-        REFERENCES brokers(id) ON DELETE SET NULL,
+        REFERENCES users(id) ON DELETE SET NULL,
 
       -- Address
       address_line1 TEXT,

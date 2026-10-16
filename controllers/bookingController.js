@@ -144,6 +144,96 @@ async function createBooking(req, res, next) {
   }
 }
 
+async function getBookings(req, res, next) {
+  try {
+    const {
+      page = "1",
+      limit = "10",
+      search = "",
+      sortBy = "created_at",
+      sortOrder = "desc",
+      status = "",
+    } = req.query;
+
+    const parsedPage = Number(page);
+    const parsedLimit = Number(limit);
+
+    if (
+      !Number.isSafeInteger(parsedPage) ||
+      parsedPage < 1 ||
+      !Number.isSafeInteger(parsedLimit) ||
+      parsedLimit < 1
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Page and limit must be positive integers",
+      });
+    }
+
+    if (parsedLimit > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Limit cannot exceed 100",
+      });
+    }
+
+    if (
+      typeof search !== "string" ||
+      search.length > 200 ||
+      typeof sortBy !== "string" ||
+      typeof sortOrder !== "string" ||
+      typeof status !== "string"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking query parameters",
+      });
+    }
+
+    if (status && !bookingService.BOOKING_STATUSES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking status filter",
+      });
+    }
+
+    const allowedSortColumns = Object.keys(bookingService.SORT_COLUMNS);
+    if (!allowedSortColumns.includes(sortBy)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid sort field",
+      });
+    }
+
+    if (!["asc", "desc"].includes(sortOrder.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: "Sort order must be asc or desc",
+      });
+    }
+
+    const result = await bookingService.getBookings({
+      page: parsedPage,
+      limit: parsedLimit,
+      search: search.trim(),
+      sortBy,
+      sortOrder: sortOrder.toLowerCase(),
+      status,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Bookings fetched successfully",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+
+
 module.exports = {
   createBooking,
+  getBookings,
 };

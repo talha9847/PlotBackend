@@ -159,6 +159,214 @@ async function createBooking(data, createdBy = null) {
   }
 }
 
+// Only allow known SQL columns for sorting. Never interpolate user input directly.
+const SORT_COLUMNS = {
+  booking_number: "b.booking_number",
+  booking_date: "b.booking_date",
+  status: "b.status",
+  agreed_price: "b.agreed_price",
+  total_amount: "b.total_amount",
+  booking_amount: "b.booking_amount",
+  created_at: "b.created_at",
+  updated_at: "b.updated_at",
+  customer_name: "l.name",
+  customer_phone: "l.phone",
+  project_name: "pr.name",
+  plot_number: "p.plot_number",
+};
+
+const BOOKING_STATUSES = [
+  "pending",
+  "reserved",
+  "confirmed",
+  "cancelled",
+  "completed",
+  "refunded",
+];
+
+async function getBookings({
+  page = 1,
+  limit = 10,
+  search = "",
+  sortBy = "created_at",
+  sortOrder = "desc",
+  status = "",
+}) {
+  const offset = (page - 1) * limit;
+
+  const sortColumn = SORT_COLUMNS[sortBy] || SORT_COLUMNS.created_at;
+
+  const direction = String(sortOrder).toLowerCase() === "asc" ? "ASC" : "DESC";
+
+  // Build search and status conditions.
+  const conditions = ["1 = 1"];
+  const values = [];
+
+  if (search.trim()) {
+    values.push(`%${search.trim()}%`);
+    const index = values.length;
+
+    conditions.push(`(
+      b.booking_number ILIKE $${index}
+      OR l.name ILIKE $${index}
+      OR l.phone ILIKE $${index}
+      OR COALESCE(l.alternate_phone, '') ILIKE $${index}
+      OR COALESCE(l.email, '') ILIKE $${index}
+      OR pr.name ILIKE $${index}
+      OR p.plot_number ILIKE $${index}
+      OR b.status ILIKE $${index}
+      OR COALESCE(b.notes, '') ILIKE $${index}
+    )`);
+  }
+
+  if (status) {
+    values.push(status);
+    conditions.push(`b.status = $${values.length}`);
+  }
+
+  const whereClause = conditions.join(" AND ");
+
+  // 1. Get overall booking statistics.
+  // These counts do not change with search, status tabs, or pagination.
+  const statsResult = await query(`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (
+        WHERE status = 'pending'
+      )::int AS pending,
+      COUNT(*) FILTER (
+        WHERE status = 'reserved'
+      )::int AS reserved,
+      COUNT(*) FILTER (
+        WHERE status = 'confirmed'
+      )::int AS confirmed,
+      COUNT(*) FILTER (
+        WHERE status = 'cancelled'
+      )::int AS cancelled,
+      COUNT(*) FILTER (
+        WHERE status = 'completed'
+      )::int AS completed,
+      COUNT(*) FILTER (
+        WHERE status = 'refunded'
+      )::int AS refunded
+    FROM bookings
+  `);
+
+  const stats = statsResult.rows[0] || {
+    total: 0,
+    pending: 0,
+    reserved: 0,
+    confirmed: 0,
+    cancelled: 0,
+    completed: 0,
+    refunded: 0,
+  };
+
+  // 2. Common joins for the booking list and filtered count.
+  const joins = `
+    FROM bookings b
+    INNER JOIN projects pr
+      ON pr.id = b.project_id
+    INNER JOIN plots p
+      ON p.id = b.plot_id
+    INNER JOIN leads l
+      ON l.id = b.lead_id
+    LEFT JOIN users creator
+      ON creator.id = b.created_by
+      AND creator.deleted_at IS NULL
+  `;
+
+  // 3. Count records matching the current search and status filter.
+  const countResult = await query(
+    `
+      SELECT COUNT(*)::int AS total
+      ${joins}
+      WHERE ${whereClause}
+    `,
+    values,
+  );
+
+  const total = countResult.rows[0]?.total ?? 0;
+  const totalPages = Math.ceil(total / limit);
+
+  // 4. Fetch the current page.
+  const dataValues = [...values, limit, offset];
+
+  const limitIndex = values.length + 1;
+  const offsetIndex = values.length + 2;
+
+  const result = await query(
+    `
+      SELECT
+        b.id,
+        b.uuid,
+        b.booking_number,
+
+        b.project_id,
+        pr.uuid AS project_uuid,
+        pr.name AS project_name,
+
+        b.plot_id,
+        p.uuid AS plot_uuid,
+        p.plot_number,
+        p.plot_type,
+        p.status AS plot_status,
+
+        b.lead_id,
+        l.uuid AS lead_uuid,
+        l.name AS customer_name,
+        l.phone AS customer_phone,
+        l.alternate_phone AS customer_alternate_phone,
+        l.email AS customer_email,
+
+        b.booking_date,
+        b.agreed_price,
+        b.discount_amount,
+        b.tax_amount,
+        b.total_amount,
+        b.booking_amount,
+
+        b.status,
+        b.cancellation_reason,
+        b.notes,
+
+        b.created_by,
+        creator.full_name AS created_by_name,
+
+        b.created_at,
+        b.updated_at
+
+      ${joins}
+
+      WHERE ${whereClause}
+
+      ORDER BY ${sortColumn} ${direction}, b.id DESC
+
+      LIMIT $${limitIndex}
+      OFFSET $${offsetIndex}
+    `,
+    dataValues,
+  );
+
+  return {
+    bookings: result.rows,
+
+    stats,
+
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1 && total > 0,
+    },
+  };
+}
+
 module.exports = {
   createBooking,
+  getBookings,
+  BOOKING_STATUSES,
+  SORT_COLUMNS,
 };

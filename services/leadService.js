@@ -42,6 +42,7 @@ async function createLead(data, createdBy = null) {
     projectId,
     plotId,
   } = data;
+  console.log(brokerId);
 
   const result = await query(
     `INSERT INTO leads (
