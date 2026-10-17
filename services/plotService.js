@@ -188,8 +188,15 @@ const getPlotsByProjectUuid = async (uuid, options = {}) => {
         p.status,
         p.notes,
         p.created_at AS "createdAt",
-        p.updated_at AS "updatedAt"
+        p.updated_at AS "updatedAt",
+        l.id AS "leadId",
+        l.uuid AS "leadUuid",
+        l.name AS "leadName",
+        l.phone AS "leadPhone"
       FROM plots p
+      LEFT JOIN leads l
+        ON l.plot_id = p.id
+        AND l.deleted_at IS NULL
       WHERE ${whereClause}
       ORDER BY
         ${SORT_COLUMNS[safeSortBy]} ${safeSortOrder} NULLS LAST,
