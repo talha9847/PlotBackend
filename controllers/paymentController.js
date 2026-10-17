@@ -11,8 +11,8 @@ async function receivePayment(req, res, next) {
       notes,
       paid_at,
       payment_method,
+      account_id,
     } = req.body;
-
 
     // Request validation belongs in the controller.
     if (!amount || Number(amount) <= 0 || !Number.isFinite(Number(amount))) {
@@ -22,7 +22,13 @@ async function receivePayment(req, res, next) {
       });
     }
 
-    if (!booking_id || !customer_id || !installment_id || !installment_uuid) {
+    if (
+      !booking_id ||
+      !customer_id ||
+      !installment_id ||
+      !installment_uuid ||
+      !account_id
+    ) {
       return res.status(400).json({
         success: false,
         message: "Booking, customer, and installment details are required.",
@@ -40,6 +46,7 @@ async function receivePayment(req, res, next) {
       {
         amount: String(amount),
         booking_id: Number(booking_id),
+        account_id: Number(account_id),
         customer_id: Number(customer_id),
         installment_id: Number(installment_id),
         installment_uuid,

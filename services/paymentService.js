@@ -76,7 +76,10 @@ const receivePayment = async (data, receivedBy) => {
     notes,
     paid_at,
     payment_method,
+    account_id,
   } = data;
+
+  console.log(data);
 
   const client = await pool.connect();
 
@@ -168,11 +171,12 @@ const receivePayment = async (data, receivedBy) => {
          payment_date,
          received_by,
          status,
-         notes
+         notes,
+         account_id
        )
        VALUES (
          $1, $2, $3, $4, $5, $6,
-         $7::date::timestamptz, $8, 'completed', $9
+         $7::date::timestamptz, $8, 'completed', $9, $10
        )
        RETURNING *`,
       [
@@ -185,6 +189,7 @@ const receivePayment = async (data, receivedBy) => {
         paid_at,
         receivedBy || null,
         notes?.trim() || null,
+        account_id,
       ],
     );
 
