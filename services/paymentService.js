@@ -98,8 +98,6 @@ const receivePayment = async (data, receivedBy) => {
     account_id,
   } = data;
 
-  console.log(data);
-
   const client = await pool.connect();
 
   try {
@@ -107,32 +105,32 @@ const receivePayment = async (data, receivedBy) => {
 
     const installmentResult = await client.query(
       `SELECT
-         i.id,
-         i.uuid,
-         i.customer_plan_id,
-         i.installment_number,
-         i.due_date,
-         i.amount_due,
-         i.amount_paid,
-         i.late_fee,
-         i.status AS installment_status,
-         i.amount_due + i.late_fee - i.amount_paid AS outstanding_balance,
-         i.due_date <= CURRENT_DATE AS is_due,
-         cp.id AS plan_id,
-         cp.customer_id,
-         cp.booking_id,
-         cp.installment_count,
-         cp.frequency,
-         cp.remaining_balance,
-         cp.status AS plan_status
-       FROM installments i
-       INNER JOIN customer_plans cp
-         ON cp.id = i.customer_plan_id
-       WHERE i.id = $1
-         AND i.uuid = $2
-         AND cp.booking_id = $3
-         AND cp.customer_id = $4
-       FOR UPDATE OF i, cp`,
+            i.id,
+            i.uuid,
+            i.customer_plan_id,
+            i.installment_number,
+            TO_CHAR(i.due_date, 'YYYY-MM-DD') AS due_date,
+            i.amount_due,
+            i.amount_paid,
+            i.late_fee,
+            i.status AS installment_status,
+            i.amount_due + i.late_fee - i.amount_paid AS outstanding_balance,
+            i.due_date <= CURRENT_DATE AS is_due,
+            cp.id AS plan_id,
+            cp.customer_id,
+            cp.booking_id,
+            cp.installment_count,
+            cp.frequency,
+            cp.remaining_balance,
+            cp.status AS plan_status
+        FROM installments i
+        INNER JOIN customer_plans cp
+            ON cp.id = i.customer_plan_id
+        WHERE i.id = $1
+            AND i.uuid = $2
+            AND cp.booking_id = $3
+            AND cp.customer_id = $4
+        FOR UPDATE OF i, cp`,
       [installment_id, installment_uuid, booking_id, customer_id],
     );
 
@@ -270,7 +268,6 @@ const receivePayment = async (data, receivedBy) => {
         installment.is_due);
 
     const nextNumber = Number(installment.installment_number) + 1;
-
     if (
       shouldCreateNext &&
       updatedPlan.status === "active" &&
@@ -284,49 +281,46 @@ const receivePayment = async (data, receivedBy) => {
       if (nextDueDate) {
         const allocationResult = await client.query(
           `SELECT
-             GREATEST(
-               $1::numeric - COALESCE(
-                 SUM(
-                   GREATEST(i.amount_due - i.amount_paid, 0)
-                 ),
-                 0
-               ),
-               0
-             ) AS unallocated_balance
-           FROM installments i
-           WHERE i.customer_plan_id = $2
-             AND i.status NOT IN ('waived', 'cancelled')`,
+              GREATEST(
+                $1::numeric - COALESCE(
+                    SUM(
+                        GREATEST(i.amount_due - i.amount_paid, 0)
+                        ),
+                        0
+                        ),
+                        0
+                        ) AS unallocated_balance
+                        FROM installments i
+                        WHERE i.customer_plan_id = $2
+                        AND i.status NOT IN ('waived', 'cancelled')`,
           [updatedPlan.remaining_balance, installment.plan_id],
         );
-
         const nextAmountResult = await client.query(
           `SELECT LEAST(
-             $1::numeric,
-             $2::numeric
-           ) AS next_amount`,
+                $1::numeric,
+                $2::numeric
+                ) AS next_amount`,
           [
             installment.amount_due,
             allocationResult.rows[0].unallocated_balance,
           ],
         );
-
         const nextAmount = nextAmountResult.rows[0].next_amount;
-
         const insertNextResult = await client.query(
           `INSERT INTO installments (
-             customer_plan_id,
-             installment_number,
-             description,
-             due_date,
-             amount_due,
-             amount_paid,
-             status
-           )
-           SELECT $1, $2, $3, $4, $5::numeric, 0, 'pending'
-           WHERE $5::numeric > 0
-           ON CONFLICT (customer_plan_id, installment_number)
-           DO NOTHING
-           RETURNING *`,
+                customer_plan_id,
+                installment_number,
+                description,
+                due_date,
+                amount_due,
+                amount_paid,
+                status
+                )
+                SELECT $1, $2, $3, $4, $5::numeric, 0, 'pending'
+                WHERE $5::numeric > 0
+                ON CONFLICT (customer_plan_id, installment_number)
+                DO NOTHING
+                RETURNING *`,
           [
             installment.plan_id,
             nextNumber,
@@ -335,7 +329,6 @@ const receivePayment = async (data, receivedBy) => {
             nextAmount,
           ],
         );
-
         nextInstallment = insertNextResult.rows[0] || null;
       }
     }

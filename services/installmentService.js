@@ -130,14 +130,36 @@ async function getInstallments({
   `;
 
   const rowsQuery = `
-    ${INSTALLMENT_ROWS_SQL}
-    SELECT *
-    FROM installment_rows
-    ${where}
-    ORDER BY ${sortColumn} ${direction} NULLS LAST, id DESC
-    LIMIT $${params.length + 1}
-    OFFSET $${params.length + 2}
-  `;
+  ${INSTALLMENT_ROWS_SQL}
+  SELECT
+    id,
+    installment_uuid,
+    installment_number,
+    description,
+    TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date,
+    amount_due,
+    amount_paid,
+    late_fee,
+    remaining,
+    status,
+    customer_plan_id,
+    customer_id,
+    customer_uuid,
+    customer_name,
+    customer_phone,
+    booking_id,
+    booking_uuid,
+    booking_number,
+    project_id,
+    project_name,
+    plot_id,
+    plot_number
+  FROM installment_rows
+  ${where}
+  ORDER BY ${sortColumn} ${direction} NULLS LAST, id DESC
+  LIMIT $${params.length + 1}
+  OFFSET $${params.length + 2}
+`;
 
   const statsQuery = `
     ${INSTALLMENT_ROWS_SQL}
