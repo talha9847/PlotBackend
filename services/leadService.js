@@ -238,6 +238,146 @@ async function getLeads({
   };
 }
 
+async function getLeadsByBroker({
+  userId,
+  page = 1,
+  limit = 10,
+  search = "",
+  sortBy = "created_at",
+  sortOrder = "desc",
+  leadType = "",
+}) {
+  const offset = (page - 1) * limit;
+
+  const sortColumns = {
+    name: "l.name",
+    created_at: "l.created_at",
+    updated_at: "l.updated_at",
+    lead_type: "l.lead_type",
+    broker_name: "u.full_name",
+    project_name: "pr.name",
+    plot_number: "p.plot_number",
+  };
+
+  const sortColumn = sortColumns[sortBy] || "l.created_at";
+  const direction = String(sortOrder).toLowerCase() === "asc" ? "ASC" : "DESC";
+
+  const conditions = ["l.deleted_at IS NULL", "l.broker_id = $1"];
+
+  const values = [userId];
+
+  if (search.trim()) {
+    values.push(`%${search.trim()}%`);
+    const index = values.length;
+
+    conditions.push(`(
+      l.name ILIKE $${index}
+      OR l.phone ILIKE $${index}
+      OR COALESCE(l.alternate_phone, '') ILIKE $${index}
+      OR COALESCE(l.email, '') ILIKE $${index}
+      OR COALESCE(l.company_name, '') ILIKE $${index}
+      OR COALESCE(l.city, '') ILIKE $${index}
+      OR COALESCE(l.district, '') ILIKE $${index}
+      OR COALESCE(l.state, '') ILIKE $${index}
+      OR COALESCE(l.postal_code, '') ILIKE $${index}
+      OR COALESCE(u.full_name, '') ILIKE $${index}
+      OR COALESCE(pr.name, '') ILIKE $${index}
+      OR COALESCE(p.plot_number, '') ILIKE $${index}
+    )`);
+  }
+
+  if (leadType) {
+    values.push(leadType);
+    conditions.push(`l.lead_type = $${values.length}`);
+  }
+
+  const whereClause = conditions.join(" AND ");
+
+  const joins = `
+    FROM leads l
+
+    LEFT JOIN users u
+      ON u.id = l.broker_id
+      AND u.deleted_at IS NULL
+
+    LEFT JOIN projects pr
+      ON pr.id = l.project_id
+      AND pr.deleted_at IS NULL
+
+    LEFT JOIN plots p
+      ON p.id = l.plot_id
+      AND p.deleted_at IS NULL
+  `;
+
+  const countResult = await query(
+    `SELECT COUNT(*)::int AS total
+     ${joins}
+     WHERE ${whereClause}`,
+    values,
+  );
+
+  const total = countResult.rows[0].total;
+  const totalPages = Math.ceil(total / limit);
+
+  const dataValues = [...values, limit, offset];
+  const limitIndex = values.length + 1;
+  const offsetIndex = values.length + 2;
+
+  const result = await query(
+    `SELECT
+       l.id,
+       l.uuid,
+       l.name,
+       l.phone,
+       l.alternate_phone,
+       l.email,
+       l.lead_type,
+       l.company_name,
+
+       l.project_id,
+       pr.name AS project_name,
+
+       l.plot_id,
+       p.plot_number AS plot_number,
+       p.status AS plot_status,
+
+       l.address_line1,
+       l.address_line2,
+       l.city,
+       l.district,
+       l.state,
+       l.postal_code,
+       l.country_code,
+       l.notes,
+
+       l.created_by,
+       l.created_at,
+       l.updated_at,
+
+       l.broker_id,
+       u.full_name AS broker_name
+
+     ${joins}
+     WHERE ${whereClause}
+     ORDER BY ${sortColumn} ${direction}, l.id DESC
+     LIMIT $${limitIndex}
+     OFFSET $${offsetIndex}`,
+    dataValues,
+  );
+
+  return {
+    leads: result.rows,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1 && total > 0,
+    },
+  };
+}
+
 async function getLeadByUuid(uuid) {
   const result = await query(
     `SELECT
@@ -356,4 +496,5 @@ module.exports = {
   CUSTOMER_TYPES,
   updateLeadByUuid,
   getLeadsDropdown,
+  getLeadsByBroker,
 };

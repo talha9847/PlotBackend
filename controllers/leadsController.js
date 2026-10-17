@@ -245,6 +245,113 @@ async function getLeadByUuid(req, res, next) {
   }
 }
 
+async function getLeadsByBroker(req, res, next) {
+  try {
+    const {
+      page = "1",
+      limit = "10",
+      search = "",
+      sortBy = "created_at",
+      sortOrder = "desc",
+      leadType = "",
+    } = req.query;
+
+    const parsedPage = Number(page);
+    const parsedLimit = Number(limit);
+
+    if (
+      !Number.isSafeInteger(parsedPage) ||
+      parsedPage < 1 ||
+      !Number.isSafeInteger(parsedLimit) ||
+      parsedLimit < 1
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Page and limit must be positive integers",
+      });
+    }
+
+    if (parsedLimit > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Limit cannot exceed 100",
+      });
+    }
+
+    if (
+      typeof search !== "string" ||
+      search.length > 200 ||
+      typeof sortBy !== "string" ||
+      typeof sortOrder !== "string" ||
+      typeof leadType !== "string"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lead query parameters",
+      });
+    }
+
+    if (leadType && !leadService.CUSTOMER_TYPES.includes(leadType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lead type filter",
+      });
+    }
+    const userId = req.user.id;
+    if (!userId) {
+      throw new Error("User ID is required");
+    }
+
+    const result = await leadService.getLeadsByBroker({
+      userId,
+      page: parsedPage,
+      limit: parsedLimit,
+      search: search.trim(),
+      sortBy,
+      sortOrder,
+      leadType,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Leads fetched successfully",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getLeadByUuid(req, res, next) {
+  try {
+    const { uuid } = req.params;
+
+    if (!UUID_REGEX.test(uuid)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lead UUID",
+      });
+    }
+
+    const lead = await leadService.getLeadByUuid(uuid);
+
+    if (!lead) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Lead fetched successfully",
+      data: { lead },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 const updateLead = async (req, res, next) => {
   try {
     const { uuid } = req.params;
@@ -358,4 +465,5 @@ module.exports = {
   getLeadByUuid,
   updateLead,
   getLeadsDropdown,
+  getLeadsByBroker,
 };
