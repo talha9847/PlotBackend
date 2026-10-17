@@ -127,9 +127,50 @@ async function getAccounts(req, res, next) {
   }
 }
 
+async function getTransactionsByAccount(req, res, next) {
+  try {
+    const { accountUuid } = req.params;
+
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (!uuidRegex.test(accountUuid)) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid account UUID is required",
+      });
+    }
+
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, Number.parseInt(req.query.limit, 10) || 10),
+    );
+
+    const search =
+      typeof req.query.search === "string" ? req.query.search.trim() : "";
+
+    const result = await accountService.getTransactionsByAccount({
+      accountUuid,
+      page,
+      limit,
+      search,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Account transactions fetched successfully",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createAccount,
   updateAccount,
   getAccountById,
   getAccounts,
+  getTransactionsByAccount,
 };
