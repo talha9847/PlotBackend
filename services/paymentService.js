@@ -5,14 +5,32 @@ const createError = (message, statusCode = 400) => {
   error.statusCode = statusCode;
   return error;
 };
-
 const getNextDueDate = (currentDate, frequency) => {
-  const [year, month, day] = String(currentDate)
-    .slice(0, 10)
-    .split("-")
-    .map(Number);
+  if (!currentDate || typeof currentDate !== "string") {
+    return null;
+  }
 
+  const dateString = currentDate.slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateString);
+
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  // Validate the actual calendar date.
   const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
 
   const monthOffsets = {
     monthly: 1,
@@ -33,6 +51,7 @@ const getNextDueDate = (currentDate, frequency) => {
   }
 
   const target = new Date(Date.UTC(year, month - 1 + monthOffset, 1));
+
   const lastDay = new Date(
     Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
   ).getUTCDate();
