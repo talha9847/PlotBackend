@@ -233,6 +233,8 @@ CREATE TABLE customer_plans (
     status VARCHAR(24) NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'completed', 'cancelled')),
     notes TEXT,
+    remaining_balance NUMERIC(14,2) NOT NULL DEFAULT 0,
+        CHECK (remaining_balance >= 0),
     created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -379,10 +379,9 @@ async function confirmBooking(bookingUuid, data, userId) {
       notes = null,
     } = data;
 
-    // 1. Get the existing booking and lock it.
     const bookingResult = await client.query(
       `
-        SELECT id, lead_id, customer_id, status
+        SELECT id, lead_id, customer_id, status, total_amount, booking_amount
         FROM bookings
         WHERE uuid = $1
         FOR UPDATE
@@ -400,11 +399,37 @@ async function confirmBooking(bookingUuid, data, userId) {
       throw new Error("Cannot confirm a cancelled or refunded booking");
     }
 
+    if (booking.status !== "pending") {
+      throw new Error("Only pending bookings can be confirmed");
+    }
+
     if (booking.customer_id) {
       throw new Error("Booking already has a customer");
     }
+    const totalAmount = Number(booking.total_amount);
+    const bookingAmount = Number(booking.booking_amount);
+    const downPayment = Number(down_payment);
+    const installmentCount = Number(installment_count);
 
-    // 2. Create customer or reuse the existing customer for this lead.
+    if (
+      !Number.isFinite(totalAmount) ||
+      !Number.isFinite(bookingAmount) ||
+      !Number.isFinite(downPayment) ||
+      downPayment < 0 ||
+      !Number.isInteger(installmentCount) ||
+      installmentCount <= 0
+    ) {
+      throw new Error("Invalid payment plan details");
+    }
+
+    const remainingPayment = Number(
+      (totalAmount - bookingAmount - downPayment).toFixed(2),
+    );
+
+    if (remainingPayment < 0) {
+      throw new Error("Payments cannot exceed the booking total");
+    }
+
     const customerResult = await client.query(
       `
         INSERT INTO customers (lead_id)
@@ -418,7 +443,6 @@ async function confirmBooking(bookingUuid, data, userId) {
 
     const customerId = customerResult.rows[0].id;
 
-    // 3. Update the existing booking with customer_id.
     await client.query(
       `
         UPDATE bookings
@@ -430,7 +454,6 @@ async function confirmBooking(bookingUuid, data, userId) {
       [customerId, bookingUuid],
     );
 
-    // 4. Create the installment plan.
     const planResult = await client.query(
       `
         INSERT INTO customer_plans (
@@ -441,10 +464,11 @@ async function confirmBooking(bookingUuid, data, userId) {
           frequency,
           start_date,
           status,
+          remaining_balance,
           notes,
           created_by
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *
       `,
       [
@@ -455,8 +479,45 @@ async function confirmBooking(bookingUuid, data, userId) {
         frequency,
         start_date,
         status,
+        remainingPayment,
         notes,
         userId,
+      ],
+    );
+
+    const customerPlanId = planResult.rows[0].id;
+    const dueDate = start_date;
+    const description = "Installment 1";
+    const amountDue =
+      Math.floor((Number(remainingPayment) / Number(installment_count)) * 100) /
+      100;
+    const installmentStatus = "pending";
+    const installmentNumber = 1;
+
+    const installmentResult = await client.query(
+      `
+    INSERT INTO installments (
+      customer_plan_id,
+      installment_number,
+      description,
+      due_date,
+      amount_due,
+      amount_paid,
+      status
+    )
+    VALUES (
+      $1,$2,$3,$4,$5,$6,$7
+    )
+    RETURNING *
+  `,
+      [
+        customerPlanId,
+        installmentNumber,
+        description,
+        dueDate,
+        amountDue,
+        0,
+        installmentStatus,
       ],
     );
 

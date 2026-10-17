@@ -37,7 +37,8 @@ async function up(client) {
         CHECK (
           status IN ('active', 'completed', 'cancelled')
         ),
-
+      remaining_balance NUMERIC(14,2) NOT NULL DEFAULT 0
+        CHECK (remaining_balance >= 0),
       notes TEXT,
 
       created_by BIGINT
