@@ -219,7 +219,7 @@ async function getCustomers({
 }
 
 const getCustomerProfile = async (uuid) => {
-  // 1. Customer details
+  // 1. Fetch customer details
   const customerResult = await query(
     `
       SELECT
@@ -235,7 +235,8 @@ const getCustomerProfile = async (uuid) => {
         l.broker_id,
         u.full_name AS broker_name
       FROM customers c
-      INNER JOIN leads l ON l.id = c.lead_id
+      INNER JOIN leads l
+        ON l.id = c.lead_id
       LEFT JOIN users u
         ON u.id = l.broker_id
         AND u.deleted_at IS NULL
@@ -252,7 +253,7 @@ const getCustomerProfile = async (uuid) => {
 
   const customer = customerResult.rows[0];
 
-  // 2. All bookings and plots belonging to this customer
+  // 2. Fetch bookings, plots, projects, and payment plans
   const bookingsResult = await query(
     `
       SELECT
@@ -283,8 +284,10 @@ const getCustomerProfile = async (uuid) => {
         cp.status AS plan_status,
         cp.remaining_balance
       FROM bookings b
-      INNER JOIN plots p ON p.id = b.plot_id
-      INNER JOIN projects pr ON pr.id = b.project_id
+      INNER JOIN plots p
+        ON p.id = b.plot_id
+      INNER JOIN projects pr
+        ON pr.id = b.project_id
       LEFT JOIN customer_plans cp
         ON cp.booking_id = b.id
         AND cp.customer_id = b.customer_id
@@ -297,15 +300,16 @@ const getCustomerProfile = async (uuid) => {
     [customer.id],
   );
 
-  // 3. All installments across all of this customer's booking plans
+  // 3. Fetch installments across all customer plans
   const installmentsResult = await query(
     `
       SELECT
-        i.id,
-        i.uuid,
+        i.id AS installment_id,
+        i.uuid AS installment_uuid,
         i.customer_plan_id,
         cp.booking_id,
         b.booking_number,
+        b.customer_id,
         p.plot_number,
         i.installment_number,
         i.description,
@@ -326,33 +330,85 @@ const getCustomerProfile = async (uuid) => {
       INNER JOIN plots p
         ON p.id = b.plot_id
       WHERE cp.customer_id = $1
+        AND b.status NOT IN ('cancelled', 'refunded')
       ORDER BY i.due_date ASC, i.installment_number ASC
+    `,
+    [customer.id],
+  );
+
+  // 4. Fetch individual payment transactions
+  const paymentsResult = await query(
+    `
+      SELECT
+        pay.id AS payment_id,
+        pay.uuid AS payment_uuid,
+        pay.payment_number,
+        pay.booking_id,
+        pay.customer_id,
+        pay.installment_id,
+        pay.payment_method,
+        pay.amount,
+        pay.payment_date,
+        pay.received_by,
+        receiver.full_name AS received_by_name,
+        pay.status AS payment_status,
+        pay.notes,
+        pay.created_at,
+        pay.updated_at,
+        b.booking_number,
+        i.installment_number,
+        p.plot_number
+      FROM payments pay
+      INNER JOIN bookings b
+        ON b.id = pay.booking_id
+      LEFT JOIN installments i
+        ON i.id = pay.installment_id
+      LEFT JOIN users receiver
+        ON receiver.id = pay.received_by
+        AND receiver.deleted_at IS NULL
+      LEFT JOIN plots p
+        ON p.id = b.plot_id
+      WHERE pay.customer_id = $1
+        AND b.status NOT IN ('cancelled', 'refunded')
+      ORDER BY pay.payment_date DESC, pay.id DESC
     `,
     [customer.id],
   );
 
   const bookings = bookingsResult.rows;
   const installments = installmentsResult.rows;
+  const payments = paymentsResult.rows;
 
+  // 5. Calculate customer statistics
   const totalInvestment = bookings.reduce(
     (sum, booking) => sum + Number(booking.total_amount || 0),
     0,
   );
 
-  const outstandingBalance = bookings.reduce((sum, booking) => {
-    const balance =
-      booking.remaining_balance != null
-        ? Number(booking.remaining_balance)
-        : Math.max(
+  // Remaining balance is maintained by the payment service.
+  const outstandingBalance = bookings.reduce(
+    (sum, booking) =>
+      sum +
+      Number(
+        booking.remaining_balance ??
+          Math.max(
             0,
             Number(booking.total_amount || 0) -
-              Number(booking.booking_amount || 0),
-          );
+              Number(booking.down_payment || booking.booking_amount || 0),
+          ),
+      ),
+    0,
+  );
 
-    return sum + balance;
-  }, 0);
+  // Count only completed transactions as collected payments.
+  const completedPayments = payments.filter(
+    (payment) => payment.payment_status === "completed",
+  );
 
-  const totalCollected = totalInvestment - outstandingBalance;
+  const totalCollected = completedPayments.reduce(
+    (sum, payment) => sum + Number(payment.amount || 0),
+    0,
+  );
 
   const paidInstallments = installments.filter(
     (item) => item.status === "paid",
@@ -366,21 +422,39 @@ const getCustomerProfile = async (uuid) => {
     (item) => item.status === "overdue",
   );
 
-  const plots = bookings.map((booking) => ({
-    ...booking,
-    balance:
-      booking.remaining_balance != null
-        ? Number(booking.remaining_balance)
-        : Math.max(
+  // 6. Attach installments and payments to each booking
+  const bookingDetails = bookings.map((booking) => {
+    const bookingInstallments = installments
+      .filter((item) => String(item.booking_id) === String(booking.booking_id))
+      .map((installment) => ({
+        ...installment,
+        payments: payments.filter(
+          (payment) =>
+            String(payment.installment_id) ===
+            String(installment.installment_id),
+        ),
+      }));
+
+    const bookingPayments = payments.filter(
+      (payment) => String(payment.booking_id) === String(booking.booking_id),
+    );
+
+    return {
+      ...booking,
+      balance: Number(
+        booking.remaining_balance ??
+          Math.max(
             0,
             Number(booking.total_amount || 0) -
-              Number(booking.booking_amount || 0),
+              Number(booking.down_payment || booking.booking_amount || 0),
           ),
-    installments: installments.filter(
-      (item) => String(item.booking_id) === String(booking.booking_id),
-    ),
-  }));
+      ),
+      installments: bookingInstallments,
+      payments: bookingPayments,
+    };
+  });
 
+  // 7. Return customer profile
   return {
     customer: {
       ...customer,
@@ -388,26 +462,42 @@ const getCustomerProfile = async (uuid) => {
     },
 
     stats: {
-      total_plots: plots.length,
-      total_projects: new Set(plots.map((plot) => String(plot.project_id)))
-        .size,
+      total_plots: bookingDetails.length,
+
+      total_projects: new Set(
+        bookingDetails.map((booking) => String(booking.project_id)),
+      ).size,
+
       total_bookings: bookings.length,
+
       total_investment: totalInvestment,
+
       total_collected: totalCollected,
+
       outstanding_balance: outstandingBalance,
+
       collection_percentage:
         totalInvestment > 0
           ? Number(((totalCollected / totalInvestment) * 100).toFixed(2))
           : 0,
+
       total_installments: installments.length,
       paid_installments: paidInstallments.length,
       upcoming_installments: upcomingInstallments.length,
       overdue_installments: overdueInstallments.length,
+
+      total_payments: payments.length,
+      completed_payments: completedPayments.length,
+      pending_payments: payments.filter(
+        (payment) => payment.payment_status === "pending",
+      ).length,
     },
 
-    bookings: plots,
+    bookings: bookingDetails,
 
     installments,
+
+    payments,
 
     upcoming_installments: upcomingInstallments,
 

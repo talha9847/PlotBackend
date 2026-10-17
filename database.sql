@@ -288,6 +288,8 @@ CREATE TABLE payment_methods (
 INSERT INTO payment_methods(code,name) VALUES
  ('cash','Cash'),('upi','UPI'),('bank_transfer','Bank transfer'),('cheque','Cheque'),('card','Card'),('payment_gateway','Payment gateway'),('other','Other')
 ON CONFLICT(code) DO NOTHING;
+
+
 CREATE TABLE payments (
  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(), payment_number VARCHAR(80) NOT NULL UNIQUE,
