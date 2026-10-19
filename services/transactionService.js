@@ -31,7 +31,6 @@ function buildTransactionFilters(filters = {}) {
     max_amount,
   } = filters;
 
-  console.log(account_id);
 
   if (search?.trim()) {
     const param = add(`%${search.trim()}%`);
@@ -131,6 +130,7 @@ const SELECT_SQL = `
     COALESCE(p.customer_id, b.customer_id) AS "customerId",
     l.name AS "customerName",
     l.phone AS "customerPhone",
+    c.uuid,
     b.project_id AS "projectId",
     pr.name AS "projectName",
     b.plot_id AS "plotId",
