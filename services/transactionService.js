@@ -101,10 +101,14 @@ function buildTransactionFilters(filters = {}) {
 
 const FROM_SQL = `
   FROM payments p
+  LEFT JOIN installments i
+    ON p.installment_id=i.id
   LEFT JOIN bookings b
     ON b.id = p.booking_id
   LEFT JOIN customers c
     ON c.id = COALESCE(p.customer_id, b.customer_id)
+  LEFT JOIN customer_plans cp
+    ON cp.customer_id=c.id
   LEFT JOIN leads l
     ON l.id = c.lead_id
     AND l.deleted_at IS NULL
@@ -131,6 +135,8 @@ const SELECT_SQL = `
     l.name AS "customerName",
     l.phone AS "customerPhone",
     c.uuid,
+    i.installment_number,
+    cp.installment_count,
     b.project_id AS "projectId",
     pr.name AS "projectName",
     b.plot_id AS "plotId",

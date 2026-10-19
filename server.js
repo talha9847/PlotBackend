@@ -84,18 +84,21 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-async function startServer() {
-  try {
-    await pool.query("SELECT 1");
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Plotwise API running at http://localhost:${PORT}`);
+});
+server.on("error", (error) => {
+  console.error("HTTP server error:", error);
+});
 
-    app.listen(PORT, () => {
-      console.log(`Plotwise API running at http://localhost:${PORT}`);
-    });
-  } catch (error) {
-    console.error("Failed to connect to PostgreSQL:", error.message);
-    process.exit(1);
-  }
-}
+server.on("close", () => {
+  console.error("HTTP server closed unexpectedly");
+});
 
-startServer();
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection:", reason);
+});

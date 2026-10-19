@@ -142,6 +142,134 @@ async function createLead(req, res, next) {
     next(error);
   }
 }
+async function createLeadByBroker(req, res, next) {
+  try {
+    const body = req.body || {};
+
+    body.projectId =
+      body.projectId === "" || body.projectId == null
+        ? null
+        : Number(body.projectId);
+
+    body.plotId =
+      body.plotId === "" || body.plotId == null ? null : Number(body.plotId);
+    if (
+      typeof body.name !== "string" ||
+      !body.name.trim() ||
+      body.name.trim().length > 100 ||
+      typeof body.phone !== "string" ||
+      !body.phone.trim() ||
+      body.phone.trim().length > 30
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Lead name and phone are required",
+      });
+    }
+
+    const leadType = body.lead_type || "individual";
+
+    if (!leadService.CUSTOMER_TYPES.includes(leadType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lead type",
+      });
+    }
+
+    const stringLimits = {
+      alternate_phone: 30,
+      email: 254,
+      company_name: 200,
+      city: 100,
+      district: 100,
+      state: 100,
+      postal_code: 20,
+      country_code: 2,
+    };
+
+    for (const [field, maxLength] of Object.entries(stringLimits)) {
+      if (!validOptionalString(body[field], maxLength)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid ${field}`,
+        });
+      }
+    }
+
+    for (const field of ["address_line1", "address_line2", "notes"]) {
+      if (body[field] != null && typeof body[field] !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid ${field}`,
+        });
+      }
+    }
+
+    if (
+      body.address_line1?.length > 5000 ||
+      body.address_line2?.length > 5000 ||
+      body.notes?.length > 10000
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Address or notes exceed the allowed length",
+      });
+    }
+
+    const email = optionalString(body.email);
+
+    if (email && (email.length > 254 || !EMAIL_REGEX.test(email))) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email address",
+      });
+    }
+
+    const countryCode = (
+      optionalString(body.country_code) || "IN"
+    ).toUpperCase();
+
+    if (!/^[A-Z]{2}$/.test(countryCode)) {
+      return res.status(400).json({
+        success: false,
+        message: "Country code must contain two letters",
+      });
+    }
+
+    const brokerId = req.user.id;
+
+    const lead = await leadService.createLead(
+      {
+        name: body.name.trim(),
+        phone: body.phone.trim(),
+        alternate_phone: optionalString(body.alternate_phone),
+        email,
+        brokerId: brokerId,
+        lead_type: leadType,
+        company_name: optionalString(body.company_name),
+        address_line1: optionalString(body.address_line1),
+        address_line2: optionalString(body.address_line2),
+        city: optionalString(body.city),
+        district: optionalString(body.district),
+        state: optionalString(body.state),
+        postal_code: optionalString(body.postal_code),
+        country_code: countryCode,
+        notes: optionalString(body.notes),
+        projectId: body.projectId,
+        plotId: body.plotId,
+      },
+      req.user?.id ?? null,
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Lead created successfully",
+      data: { lead },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 
 async function getLeads(req, res, next) {
   try {
@@ -466,4 +594,5 @@ module.exports = {
   updateLead,
   getLeadsDropdown,
   getLeadsByBroker,
+  createLeadByBroker,
 };

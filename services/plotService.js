@@ -274,6 +274,7 @@ async function getPlotsDropdown2({ projectId, search }) {
       ON pr.id = p.project_id
     WHERE p.deleted_at IS NULL
       AND pr.deleted_at IS NULL
+      AND p.status='booked'
       AND ($1::bigint IS NULL OR p.project_id = $1)
       AND (
         $2::text IS NULL
