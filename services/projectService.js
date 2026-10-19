@@ -156,6 +156,219 @@ async function createProject(data, createdBy = null) {
   }
 }
 
+async function manageProjectPlots({
+  project_id,
+  action,
+  count,
+  createdBy = null,
+}) {
+  const client = await pool.connect();
+
+  try {
+    // Validate the request before opening a transaction.
+    if (!project_id) {
+      throw new ProjectServiceError("Project ID is required.", 400);
+    }
+
+    if (!["add", "delete"].includes(action)) {
+      throw new ProjectServiceError(
+        'Action must be either "add" or "delete".',
+        400,
+      );
+    }
+
+    if (!Number.isSafeInteger(count) || count <= 0) {
+      throw new ProjectServiceError(
+        "Plot count must be a positive whole number.",
+        400,
+      );
+    }
+
+    await client.query("BEGIN");
+
+    // Lock the project so simultaneous plot updates cannot overwrite each other.
+    const projectResult = await client.query(
+      `
+        SELECT id, uuid, name, plots
+        FROM projects
+        WHERE id::text = $1 OR uuid::text = $1
+        FOR UPDATE
+      `,
+      [String(project_id)],
+    );
+
+    if (projectResult.rowCount === 0) {
+      throw new ProjectServiceError("Project not found.", 404);
+    }
+
+    const project = projectResult.rows[0];
+    const currentPlots = Number(project.plots || 0);
+
+    if (action === "add") {
+      // Find the highest existing numeric suffix to avoid reusing plot numbers.
+      const maxResult = await client.query(
+        `
+          SELECT COALESCE(
+            MAX(substring(plot_number FROM '([0-9]+)$')::bigint),
+            0
+          ) AS max_number
+          FROM plots
+          WHERE project_id = $1
+        `,
+        [project.id],
+      );
+
+      const maxNumber = Number(maxResult.rows[0].max_number);
+
+      if (
+        !Number.isSafeInteger(maxNumber) ||
+        !Number.isSafeInteger(maxNumber + count)
+      ) {
+        throw new ProjectServiceError(
+          "The requested plot numbers exceed the supported range.",
+          400,
+        );
+      }
+
+      const prefix = generatePlotPrefix(project.name);
+
+      const plotNumbers = Array.from(
+        { length: count },
+        (_, index) =>
+          `${prefix}-${String(maxNumber + index + 1).padStart(3, "0")}`,
+      );
+
+      // Insert individual plot records.
+      await client.query(
+        `
+          INSERT INTO plots (
+            project_id,
+            plot_number,
+            created_by
+          )
+          SELECT $1, generated.plot_number, $3
+          FROM unnest($2::varchar[]) AS generated(plot_number)
+        `,
+        [project.id, plotNumbers, createdBy],
+      );
+
+      // Keep the project's stored plot count synchronized.
+      const updatedProject = await client.query(
+        `
+          UPDATE projects
+          SET plots = plots + $2,
+              updated_at = NOW()
+          WHERE id = $1
+          RETURNING id, uuid, name, plots
+        `,
+        [project.id, count],
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        action: "add",
+        requested: count,
+        affected: count,
+        project: updatedProject.rows[0],
+        plot_numbers: plotNumbers,
+      };
+    }
+
+    // DELETE FLOW
+    // Assumes plots.status stores values such as available, booked, and sold.
+    // Select the highest-numbered available plots first.
+    const deletableResult = await client.query(
+      `
+        SELECT id, plot_number
+        FROM plots
+        WHERE project_id = $1
+          AND LOWER(COALESCE(status, 'available'))
+              NOT IN ('booked', 'sold')
+        ORDER BY
+          substring(plot_number FROM '([0-9]+)$')::bigint DESC NULLS LAST,
+          plot_number DESC
+        LIMIT $2
+        FOR UPDATE
+      `,
+      [project.id, count],
+    );
+
+    if (deletableResult.rowCount < count) {
+      throw new ProjectServiceError(
+        `Only ${deletableResult.rowCount} plots can be deleted safely. Requested: ${count}. Booked or sold plots cannot be deleted.`,
+        409,
+      );
+    }
+
+    const plotIds = deletableResult.rows.map((plot) => plot.id);
+
+    const deletedResult = await client.query(
+      `
+        DELETE FROM plots
+        WHERE project_id = $1
+          AND id = ANY($2)
+        RETURNING id, plot_number
+      `,
+      [project.id, plotIds],
+    );
+
+    const deletedCount = deletedResult.rowCount;
+
+    if (deletedCount !== count) {
+      throw new ProjectServiceError(
+        "The number of deleted plots did not match the requested count.",
+        409,
+      );
+    }
+
+    const updatedProject = await client.query(
+      `
+        UPDATE projects
+        SET plots = plots - $2,
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, uuid, name, plots
+      `,
+      [project.id, deletedCount],
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      action: "delete",
+      requested: count,
+      affected: deletedCount,
+      project: updatedProject.rows[0],
+      deleted_plots: deletedResult.rows.map((plot) => plot.plot_number),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+
+    if (error instanceof ProjectServiceError) {
+      throw error;
+    }
+
+    if (error.code === "23505") {
+      throw new ProjectServiceError(
+        "A plot with this number already exists.",
+        409,
+      );
+    }
+
+    if (error.code === "23514") {
+      throw new ProjectServiceError(
+        "One or more plot fields have invalid values.",
+        400,
+      );
+    }
+
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function getProjects() {
   try {
     const result = await query(`
@@ -255,4 +468,5 @@ module.exports = {
   ProjectServiceError,
   getProjects,
   getProjectStats,
+  manageProjectPlots,
 };

@@ -190,8 +190,33 @@ async function getProjectStats(req, res, next) {
     next(error);
   }
 }
+
+async function manageProjectPlots(req, res, next) {
+  try {
+    const { project_id, action, count } = req.body;
+
+    const result = await projectService.manageProjectPlots({
+      project_id,
+      action,
+      count,
+      createdBy: req.user?.id ?? null,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message:
+        action === "add"
+          ? "Plots added successfully."
+          : "Plots deleted successfully.",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 module.exports = {
   createProject,
   getProjects,
   getProjectStats,
+  manageProjectPlots,
 };
