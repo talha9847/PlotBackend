@@ -62,6 +62,7 @@ async function up(client) {
       CHECK (booking_amount <= total_amount)
     );
 
+    -- Regular indexes
     CREATE INDEX IF NOT EXISTS idx_bookings_project_id
       ON bookings (project_id);
 
@@ -83,6 +84,12 @@ async function up(client) {
     CREATE INDEX IF NOT EXISTS idx_bookings_created_by
       ON bookings (created_by);
 
+    -- Prevent multiple active bookings for the same plot
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_bookings_active_plot
+      ON bookings (plot_id)
+      WHERE status IN ('pending', 'reserved', 'confirmed');
+
+    -- Automatically update updated_at
     CREATE OR REPLACE FUNCTION set_bookings_updated_at()
     RETURNS TRIGGER AS $$
     BEGIN

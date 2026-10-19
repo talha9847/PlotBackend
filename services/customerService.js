@@ -505,4 +505,43 @@ const getCustomerProfile = async (uuid) => {
   };
 };
 
-module.exports = { getCustomers, getCustomerProfile };
+async function getCustomersDropdown({ search }) {
+  const queryString = `
+    SELECT
+      c.id,
+      c.uuid,
+      c.lead_id AS "leadId",
+      l.name AS "name",
+      l.phone,
+      l.email,
+      l.broker_id AS "brokerId",
+      b.name AS "brokerName"
+    FROM customers c
+    INNER JOIN leads l
+      ON l.id = c.lead_id
+      AND l.deleted_at IS NULL
+    LEFT JOIN brokers b
+      ON b.id = l.broker_id
+    WHERE
+      (
+        $1::text IS NULL
+        OR l.name ILIKE '%' || $1 || '%'
+        OR l.phone ILIKE '%' || $1 || '%'
+        OR l.email ILIKE '%' || $1 || '%'
+        OR b.name ILIKE '%' || $1 || '%'
+      )
+    ORDER BY
+      CASE
+        WHEN LOWER(l.name) = LOWER($1) THEN 0
+        ELSE 1
+      END,
+      l.name ASC
+    LIMIT 10;
+  `;
+
+  const result = await query(queryString, [search?.trim() || null]);
+
+  return result.rows;
+}
+
+module.exports = { getCustomers, getCustomerProfile, getCustomersDropdown };

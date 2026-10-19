@@ -455,6 +455,7 @@ const updateLeadByUuid = async (uuid, data, updatedBy) => {
 
   return rows[0] ?? null;
 };
+
 async function getLeadsDropdown({ search }) {
   const queryString = `
     SELECT
@@ -489,6 +490,7 @@ async function getLeadsDropdown({ search }) {
   return result.rows;
 }
 
+
 module.exports = {
   createLead,
   getLeads,
@@ -497,4 +499,5 @@ module.exports = {
   updateLeadByUuid,
   getLeadsDropdown,
   getLeadsByBroker,
+  
 };

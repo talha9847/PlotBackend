@@ -133,4 +133,34 @@ const getCustomerProfile = async (req, res, next) => {
   }
 };
 
-module.exports = { getCustomers, getCustomerProfile };
+async function getCustomersDropdown(req, res) {
+  try {
+    const { search } = req.query;
+
+    if (search !== undefined && typeof search !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid search parameter",
+      });
+    }
+
+    const customers = await customerService.getCustomersDropdown({
+      search,
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: customers.length,
+      data: customers,
+    });
+  } catch (error) {
+    console.error("Get customers dropdown error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch customers",
+    });
+  }
+}
+
+module.exports = { getCustomers, getCustomerProfile, getCustomersDropdown };

@@ -22,5 +22,10 @@ router.get(
   auth.authenticate,
   plotController.getPlotsDropdown,
 );
+router.get(
+  "/plots/dropdown2",
+  auth.authenticate,
+  plotController.getPlotsDropdown2,
+);
 
 module.exports = router;

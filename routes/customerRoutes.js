@@ -7,7 +7,14 @@ const customerController = require("../controllers/customerController");
 const installmentController = require("../controllers/installmentController");
 const auth = require("../middlewares/authMiddleware");
 
+router.get(
+  "/dropdown",
+  auth.authenticate,
+  customerController.getCustomersDropdown,
+);
+
 router.get("/", auth.authenticate, customerController.getCustomers);
+
 router.get(
   "/:uuid/profile",
   auth.authenticate,
@@ -19,4 +26,5 @@ router.get(
   auth.authenticate,
   installmentController.getInstallments,
 );
+
 module.exports = router;
