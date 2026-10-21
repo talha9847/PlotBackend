@@ -361,15 +361,142 @@ CREATE INDEX idx_payments_status
 
 
 
-
-CREATE TABLE accounts (
+CREATE TABLE IF NOT EXISTS accounts (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
     account_name VARCHAR(100) NOT NULL,
     bank_name VARCHAR(100) NOT NULL,
+    current_balance NUMERIC(14,2) NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+
+CREATE TABLE parties (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    name VARCHAR(160) NOT NULL,
+    party_type VARCHAR(30) NOT NULL DEFAULT 'other'
+        CHECK (
+            party_type IN (
+                'driver',
+                'employee',
+                'vendor',
+                'supplier',
+                'landlord',
+                'customer',
+                'broker',
+                'other'
+            )
+        ),
+    phone VARCHAR(30) UNIQUE,
+    email VARCHAR(254),
+    address TEXT,
+    notes TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
+);
+CREATE INDEX idx_parties_name
+    ON parties(name);
+CREATE INDEX idx_parties_deleted_at
+    ON parties(deleted_at);
+
+
+
+
+
+
+
+
+CREATE TABLE transaction_categories (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    name VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
+);
+CREATE INDEX idx_transaction_categories_deleted_at
+    ON transaction_categories(deleted_at);
+
+
+
+
+CREATE TABLE financial_transactions (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+
+    transaction_number VARCHAR(80) NOT NULL UNIQUE,
+
+    transaction_type VARCHAR(20) NOT NULL
+        CHECK (transaction_type IN ('income', 'expense')),
+
+    account_id BIGINT NOT NULL
+        REFERENCES accounts(id) ON DELETE RESTRICT,
+
+    party_id BIGINT
+        REFERENCES parties(id) ON DELETE RESTRICT,
+
+    category_id BIGINT NOT NULL
+        REFERENCES transaction_categories(id) ON DELETE RESTRICT,
+
+    amount NUMERIC(14,2) NOT NULL
+        CHECK (amount > 0),
+
+    transaction_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    payment_method VARCHAR(24) NOT NULL DEFAULT 'cash'
+        CHECK (
+            payment_method IN (
+                'cash',
+                'upi',
+                'bank_transfer',
+                'card',
+                'cheque',
+                'other'
+            )
+        ),
+
+    status VARCHAR(20) NOT NULL DEFAULT 'posted'
+        CHECK (status IN ('pending', 'posted', 'cancelled')),
+
+    reference_number VARCHAR(100),
+    notes TEXT,
+
+    created_by BIGINT
+        REFERENCES users(id) ON DELETE SET NULL,
+
+    updated_by BIGINT
+        REFERENCES users(id) ON DELETE SET NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_financial_transactions_account_date
+    ON financial_transactions(account_id, transaction_date DESC)
+    WHERE deleted_at IS NULL;
+CREATE INDEX idx_financial_transactions_party
+    ON financial_transactions(party_id)
+    WHERE deleted_at IS NULL;
+CREATE INDEX idx_financial_transactions_category
+    ON financial_transactions(category_id)
+    WHERE deleted_at IS NULL;
+CREATE INDEX idx_financial_transactions_type_status
+    ON financial_transactions(transaction_type, status)
+    WHERE deleted_at IS NULL;
+
+
+
+
 
 
 
