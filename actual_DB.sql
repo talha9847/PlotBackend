@@ -429,29 +429,22 @@ CREATE INDEX idx_transaction_categories_deleted_at
 
 
 
+
 CREATE TABLE financial_transactions (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
-
     transaction_number VARCHAR(80) NOT NULL UNIQUE,
-
     transaction_type VARCHAR(20) NOT NULL
         CHECK (transaction_type IN ('income', 'expense')),
-
     account_id BIGINT NOT NULL
         REFERENCES accounts(id) ON DELETE RESTRICT,
-
     party_id BIGINT
         REFERENCES parties(id) ON DELETE RESTRICT,
-
     category_id BIGINT NOT NULL
         REFERENCES transaction_categories(id) ON DELETE RESTRICT,
-
     amount NUMERIC(14,2) NOT NULL
         CHECK (amount > 0),
-
     transaction_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
     payment_method VARCHAR(24) NOT NULL DEFAULT 'cash'
         CHECK (
             payment_method IN (
@@ -463,19 +456,14 @@ CREATE TABLE financial_transactions (
                 'other'
             )
         ),
-
     status VARCHAR(20) NOT NULL DEFAULT 'posted'
         CHECK (status IN ('pending', 'posted', 'cancelled')),
-
     reference_number VARCHAR(100),
     notes TEXT,
-
     created_by BIGINT
         REFERENCES users(id) ON DELETE SET NULL,
-
     updated_by BIGINT
         REFERENCES users(id) ON DELETE SET NULL,
-
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ
