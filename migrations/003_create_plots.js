@@ -39,6 +39,18 @@ async function up(client) {
 
       notes TEXT,
 
+      length NUMERIC(10,2) NOT NULL
+        CHECK (length > 0),
+
+      breadth NUMERIC(10,2) NOT NULL
+        CHECK (breadth > 0),
+
+      dimension VARCHAR(5) NOT NULL DEFAULT 'ft'
+        CHECK (dimension IN ('ft', 'mt')),
+
+      area NUMERIC(14,2)
+        GENERATED ALWAYS AS (length * breadth) STORED,
+
       created_by BIGINT
         REFERENCES users(id) ON DELETE SET NULL,
 

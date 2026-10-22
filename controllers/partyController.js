@@ -412,11 +412,42 @@ const deleteParty = async (req, res) => {
   }
 };
 
+async function getPartiesDropdown(req, res) {
+  try {
+    const { search } = req.query;
+
+    if (search !== undefined && typeof search !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid search parameter",
+      });
+    }
+
+    const parties = await partyService.getPartiesDropdown({
+      search,
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: parties.length,
+      data: parties,
+    });
+  } catch (error) {
+    console.error("Get parties dropdown error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch parties",
+    });
+  }
+}
+
 module.exports = {
   createParty,
   getParties,
   getPartyByUuid,
   updateParty,
   setPartyActive,
+  getPartiesDropdown,
   deleteParty,
 };

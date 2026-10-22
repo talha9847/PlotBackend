@@ -40,19 +40,54 @@ CREATE TABLE projects (
 
 
 CREATE TABLE plots (
- id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
- uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
- project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
- plot_number VARCHAR(80) NOT NULL,
- plot_type VARCHAR(30) NOT NULL DEFAULT 'residential' CHECK(plot_type IN ('residential','commercial','industrial','agricultural','other')),
- base_price NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(base_price >= 0),
- status VARCHAR(24) NOT NULL DEFAULT 'available' CHECK(status IN ('available','reserved','booked','sold','blocked','under_development')),
- notes TEXT, 
- created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
- created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), 
- updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), 
- deleted_at TIMESTAMPTZ,
- UNIQUE(project_id,plot_number)
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
+    uuid UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+
+    project_id BIGINT NOT NULL
+        REFERENCES projects(id) ON DELETE RESTRICT,
+
+    plot_number VARCHAR(80) NOT NULL,
+
+    plot_type VARCHAR(30) NOT NULL DEFAULT 'residential'
+        CHECK (plot_type IN (
+            'residential',
+            'commercial',
+            'industrial',
+            'agricultural',
+            'other'
+        )),
+
+    base_price NUMERIC(14,2) NOT NULL DEFAULT 0
+        CHECK (base_price >= 0),
+
+    status VARCHAR(24) NOT NULL DEFAULT 'available'
+        CHECK (status IN (
+            'available',
+            'reserved',
+            'booked',
+            'sold',
+            'blocked',
+            'under_development'
+        )),
+
+    notes TEXT,
+    length NUMERIC(10,2) NOT NULL CHECK (length > 0),
+    breadth NUMERIC(10,2) NOT NULL CHECK (breadth > 0),
+
+    dimension VARCHAR(5) NOT NULL DEFAULT 'ft'
+        CHECK (dimension IN ('ft', 'mt')),
+
+    area NUMERIC(14,2)
+        GENERATED ALWAYS AS (length * breadth) STORED
+    created_by BIGINT
+        REFERENCES users(id) ON DELETE SET NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+
+    UNIQUE (project_id, plot_number)
 );
 
 

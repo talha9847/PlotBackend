@@ -263,6 +263,33 @@ const deletePartyByUuid = async (uuid) => {
   return result.rows[0] || null;
 };
 
+async function getPartiesDropdown({ search }) {
+  const queryString = `
+    SELECT
+      p.id,
+      p.uuid,
+      p.name,
+      p.phone
+    FROM parties p
+    WHERE p.deleted_at IS NULL
+      AND (
+        $1::text IS NULL
+        OR p.name ILIKE '%' || $1 || '%'
+        OR p.phone ILIKE '%' || $1 || '%'
+      )
+    ORDER BY
+      CASE
+        WHEN LOWER(p.name) = LOWER($1) THEN 0
+        ELSE 1
+      END,
+      p.name ASC
+    LIMIT 10;
+  `;
+
+  const result = await query(queryString, [search?.trim() || null]);
+
+  return result.rows;
+}
 module.exports = {
   PARTY_TYPES,
   createParty,
@@ -271,4 +298,5 @@ module.exports = {
   updatePartyByUuid,
   setPartyActiveByUuid,
   deletePartyByUuid,
+  getPartiesDropdown,
 };

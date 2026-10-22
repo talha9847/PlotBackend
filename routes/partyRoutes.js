@@ -4,6 +4,7 @@ const router = express.Router();
 const partyController = require("../controllers/partyController");
 const auth = require("../middlewares/authMiddleware");
 
+router.get("/dropdown", auth.authenticate, partyController.getPartiesDropdown);
 router.post("/", auth.authenticate, partyController.createParty);
 router.get("/", auth.authenticate, partyController.getParties);
 router.get("/:uuid", auth.authenticate, partyController.getPartyByUuid);
