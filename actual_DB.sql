@@ -72,8 +72,8 @@ CREATE TABLE plots (
         )),
 
     notes TEXT,
-    length NUMERIC(10,2) NOT NULL CHECK (length > 0),
-    breadth NUMERIC(10,2) NOT NULL CHECK (breadth > 0),
+    length NUMERIC(10,2)  CHECK (length > 0),
+    breadth NUMERIC(10,2)  CHECK (breadth > 0),
 
     dimension VARCHAR(5) NOT NULL DEFAULT 'ft'
         CHECK (dimension IN ('ft', 'mt')),
