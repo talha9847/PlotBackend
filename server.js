@@ -15,6 +15,7 @@ const customerRoutes = require("./routes/customerRoutes");
 const accountRoutes = require("./routes/accountRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const transactionRoutes = require("./routes/transactionRoutes");
+const partyRoutes = require("./routes/partyRoutes");
 
 // Middleware
 app.use(
@@ -66,6 +67,7 @@ app.use("/api/customers", customerRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/transactions", transactionRoutes);
+app.use("/api/parties", partyRoutes);
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({

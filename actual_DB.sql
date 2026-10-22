@@ -390,7 +390,7 @@ CREATE TABLE parties (
                 'other'
             )
         ),
-    phone VARCHAR(30) UNIQUE,
+    phone VARCHAR(30) UNIQUE NOT NULL,
     email VARCHAR(254),
     address TEXT,
     notes TEXT,
