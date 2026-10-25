@@ -12,6 +12,14 @@ async function authenticate(req, res, next) {
     }
 
     const decoded = await jwtService.verifyJwt(token);
+
+    if (!decoded || typeof decoded !== "object" || !decoded.id) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired token",
+      });
+    }
+
     req.user = decoded;
 
     return next();

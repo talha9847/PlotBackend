@@ -1,12 +1,10 @@
 const installmentService = require("../services/installmentService.js");
 
 const ALLOWED_STATUSES = [
+  "upcoming",
   "pending",
   "partially_paid",
   "overdue",
-  "paid",
-  "waived",
-  "cancelled",
 ];
 
 const ALLOWED_SORTS = [
@@ -53,7 +51,8 @@ async function getInstallments(req, res) {
     if (status !== undefined && !ALLOWED_STATUSES.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid installment status",
+        message:
+          "Invalid installment status. Only upcoming, pending, partially paid, or overdue installments can be listed.",
       });
     }
 

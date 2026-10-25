@@ -1,6 +1,12 @@
 "use strict";
 
 const bookingService = require("../services/bookingService");
+const financeService = require("../services/financeService");
+
+const { PAYMENT_METHODS, getIdempotencyKey } = financeService;
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const isPositiveId = (value) =>
   (typeof value === "string" || typeof value === "number") &&
@@ -41,6 +47,10 @@ async function createBooking(req, res, next) {
       tax_amount = 0,
       booking_amount = 0,
       notes = null,
+      payment_method = "cash",
+      account_id,
+      payment_date,
+      reference_number,
     } = body;
 
     const errors = {};
@@ -88,6 +98,38 @@ async function createBooking(req, res, next) {
       errors.notes = "Notes cannot exceed 10000 characters";
     }
 
+    if (!PAYMENT_METHODS.includes(payment_method)) {
+      errors.payment_method = "Select a valid payment method";
+    }
+
+    if (
+      payment_date !== undefined &&
+      payment_date !== null &&
+      payment_date !== "" &&
+      !isValidDate(payment_date)
+    ) {
+      errors.payment_date = "Enter a valid date in YYYY-MM-DD format";
+    }
+
+    if (
+      reference_number !== undefined &&
+      reference_number !== null &&
+      (typeof reference_number !== "string" || reference_number.length > 150)
+    ) {
+      errors.reference_number =
+        "Reference number must be at most 150 characters";
+    }
+
+    if (
+      isValidAmount(booking_amount) &&
+      Number(booking_amount) > 0 &&
+      payment_method !== "cash" &&
+      !isPositiveId(account_id)
+    ) {
+      errors.account_id =
+        "A bank account is required for non-cash token payments";
+    }
+
     if (
       isValidAmount(agreed_price) &&
       isValidAmount(discount_amount) &&
@@ -130,8 +172,13 @@ async function createBooking(req, res, next) {
         tax_amount,
         booking_amount,
         notes: notes?.trim() || null,
+        payment_method,
+        account_id: account_id ?? null,
+        payment_date: payment_date || null,
+        reference_number: reference_number?.trim() || null,
       },
       req.user?.id ?? null,
+      getIdempotencyKey(req),
     );
 
     return res.status(201).json({
@@ -231,7 +278,7 @@ async function getBookings(req, res, next) {
   }
 }
 
-async function confirmBooking(req, res) {
+async function confirmBooking(req, res, next) {
   try {
     const { bookingUuid } = req.params;
     const userId = req.user?.id;
@@ -243,12 +290,13 @@ async function confirmBooking(req, res) {
       start_date,
       status = "active",
       notes = null,
+      payment_method = "cash",
+      account_id,
+      payment_date,
+      reference_number,
     } = req.body;
 
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-    if (!bookingUuid || !uuidRegex.test(bookingUuid)) {
+    if (!bookingUuid || !UUID_REGEX.test(bookingUuid)) {
       return res.status(400).json({
         success: false,
         message: "A valid booking UUID is required",
@@ -294,9 +342,15 @@ async function confirmBooking(req, res) {
       "quarterly",
       "half_yearly",
       "yearly",
-      "milestone",
-      "custom",
     ];
+
+    if (["milestone", "custom"].includes(frequency)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Milestone and custom payment plans require an explicit due date for every installment and are not supported by this endpoint yet.",
+      });
+    }
 
     if (!allowedFrequencies.includes(frequency)) {
       return res.status(400).json({
@@ -334,6 +388,48 @@ async function confirmBooking(req, res) {
       });
     }
 
+    if (!PAYMENT_METHODS.includes(payment_method)) {
+      return res.status(400).json({
+        success: false,
+        message: "Select a valid payment method",
+      });
+    }
+
+    if (
+      payment_date !== undefined &&
+      payment_date !== null &&
+      payment_date !== "" &&
+      !isValidDate(payment_date)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Enter a valid payment date in YYYY-MM-DD format",
+      });
+    }
+
+    if (
+      reference_number !== undefined &&
+      reference_number !== null &&
+      (typeof reference_number !== "string" || reference_number.length > 150)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Reference number must be at most 150 characters",
+      });
+    }
+
+    if (
+      Number(down_payment) > 0 &&
+      payment_method !== "cash" &&
+      !isPositiveId(account_id)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "A bank account is required for non-cash down-payment receipts",
+      });
+    }
+
     const result = await bookingService.confirmBooking(
       bookingUuid,
       {
@@ -343,6 +439,10 @@ async function confirmBooking(req, res) {
         start_date,
         status,
         notes: notes?.trim() || null,
+        payment_method,
+        account_id: account_id ?? null,
+        payment_date: payment_date || null,
+        reference_number: reference_number?.trim() || null,
       },
       userId,
     );
@@ -352,37 +452,112 @@ async function confirmBooking(req, res) {
       message: "Booking confirmed successfully",
       data: result,
     });
-  } catch (talha) {
-    console.error("Confirm booking error:", talha);
+  } catch (error) {
+    return next(error);
+  }
+}
 
-    if (talha.message === "Booking not found") {
-      return res.status(404).json({
+async function cancelBooking(req, res, next) {
+  try {
+    const { bookingUuid } = req.params;
+
+    if (!bookingUuid || !UUID_REGEX.test(bookingUuid)) {
+      return res.status(400).json({
         success: false,
-        message: talha.message,
+        message: "A valid booking UUID is required",
+      });
+    }
+
+    const body = req.body || {};
+    const {
+      reason = "",
+      refund_token = false,
+      refund_method,
+      refund_account_id,
+      refund_date,
+      reference_number,
+    } = body;
+
+    if (typeof reason !== "string" || reason.length > 5000) {
+      return res.status(400).json({
+        success: false,
+        message: "Cancellation reason must be at most 5000 characters",
+      });
+    }
+
+    if (typeof refund_token !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "refund_token must be true or false",
       });
     }
 
     if (
-      talha.message === "Booking already has a customer" ||
-      talha.message === "Cannot confirm a cancelled or refunded booking"
+      refund_method !== undefined &&
+      refund_method !== null &&
+      !PAYMENT_METHODS.includes(refund_method)
     ) {
-      return res.status(409).json({
+      return res.status(400).json({
         success: false,
-        message: talha.message,
+        message: "Select a valid refund method",
       });
     }
 
-    if (talha.code === "23505") {
-      return res.status(409).json({
+    if (
+      refund_token &&
+      refund_method !== undefined &&
+      refund_method !== "cash" &&
+      !isPositiveId(refund_account_id)
+    ) {
+      return res.status(400).json({
         success: false,
-        message: "A customer plan already exists for this booking",
+        message: "A bank account is required for non-cash refunds",
       });
     }
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to confirm booking",
+    if (
+      refund_date !== undefined &&
+      refund_date !== null &&
+      refund_date !== "" &&
+      !isValidDate(refund_date)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Enter a valid refund date in YYYY-MM-DD format",
+      });
+    }
+
+    if (
+      reference_number !== undefined &&
+      reference_number !== null &&
+      (typeof reference_number !== "string" || reference_number.length > 150)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Reference number must be at most 150 characters",
+      });
+    }
+
+    const result = await bookingService.cancelBooking(
+      bookingUuid,
+      {
+        reason: reason.trim(),
+        refund_token,
+        refund_method: refund_method || null,
+        refund_account_id: refund_account_id ?? null,
+        refund_date: refund_date || null,
+        reference_number: reference_number?.trim() || null,
+      },
+      req.user?.id ?? null,
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Booking cancelled successfully",
+      data: result,
     });
+  } catch (error) {
+    return next(error);
   }
 }
 
@@ -390,4 +565,5 @@ module.exports = {
   createBooking,
   getBookings,
   confirmBooking,
+  cancelBooking,
 };

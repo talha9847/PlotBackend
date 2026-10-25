@@ -1,4 +1,4 @@
-const { query } = require("../config/db");
+const { query, pool } = require("../config/db");
 
 // 1. Project dropdown: only the fields needed by the frontend
 const getProjects = async () => {
@@ -186,6 +186,14 @@ const getPlotsByProjectUuid = async (uuid, options = {}) => {
         p.plot_type AS "plotType",
         p.base_price AS price,
         p.status,
+        p.length,
+        p.breadth,
+        p.dimension,
+        p.area,
+        p.facing,
+        p.is_corner AS "isCorner",
+        p.boundary_wall AS "boundaryWall",
+        p.road_width AS "roadWidth",
         p.notes,
         p.created_at AS "createdAt",
         p.updated_at AS "updatedAt",
@@ -194,9 +202,18 @@ const getPlotsByProjectUuid = async (uuid, options = {}) => {
         l.name AS "leadName",
         l.phone AS "leadPhone"
       FROM plots p
-      LEFT JOIN leads l
-        ON l.plot_id = p.id
-        AND l.deleted_at IS NULL
+      LEFT JOIN LATERAL (
+        SELECT
+          l.id,
+          l.uuid,
+          l.name,
+          l.phone
+        FROM leads l
+        WHERE l.plot_id = p.id
+          AND l.deleted_at IS NULL
+        ORDER BY l.created_at DESC, l.id DESC
+        LIMIT 1
+      ) l ON TRUE
       WHERE ${whereClause}
       ORDER BY
         ${SORT_COLUMNS[safeSortBy]} ${safeSortOrder} NULLS LAST,
@@ -297,10 +314,154 @@ async function getPlotsDropdown2({ projectId, search }) {
   return result.rows;
 }
 
+// 4. Update a single plot's editable attributes.
+const EDITABLE_COLUMNS = new Set([
+  "plot_type",
+  "base_price",
+  "length",
+  "breadth",
+  "dimension",
+  "status",
+  "facing",
+  "is_corner",
+  "boundary_wall",
+  "road_width",
+  "notes",
+]);
+
+const createServiceError = (message, statusCode = 400) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const updatePlotByUuid = async (uuid, data) => {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw createServiceError("A plot payload is required.");
+  }
+
+  const entries = Object.entries(data).filter(([key]) =>
+    EDITABLE_COLUMNS.has(key),
+  );
+
+  if (entries.length === 0) {
+    throw createServiceError("No editable plot fields were provided.");
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const currentResult = await client.query(
+      `
+        SELECT id, length, breadth, status
+        FROM plots
+        WHERE uuid = $1
+          AND deleted_at IS NULL
+        FOR UPDATE
+      `,
+      [uuid],
+    );
+
+    if (currentResult.rowCount === 0) {
+      throw createServiceError("Plot not found.", 404);
+    }
+
+    const current = currentResult.rows[0];
+
+    const mergedLength = Object.hasOwn(data, "length")
+      ? data.length
+      : current.length;
+    const mergedBreadth = Object.hasOwn(data, "breadth")
+      ? data.breadth
+      : current.breadth;
+
+    const hasLength = mergedLength !== null && mergedLength !== undefined;
+    const hasBreadth = mergedBreadth !== null && mergedBreadth !== undefined;
+
+    if (hasLength !== hasBreadth) {
+      throw createServiceError(
+        "Length and breadth must both be provided or both be empty.",
+      );
+    }
+
+    // Releasing a plot must not orphan an active booking.
+    if (data.status === "available" && current.status !== "available") {
+      const bookingResult = await client.query(
+        `
+          SELECT 1
+          FROM bookings
+          WHERE plot_id = $1
+            AND status NOT IN ('cancelled', 'refunded')
+          LIMIT 1
+        `,
+        [current.id],
+      );
+
+      if (bookingResult.rowCount > 0) {
+        throw createServiceError(
+          "This plot has an active booking. Cancel the booking before marking the plot available.",
+          409,
+        );
+      }
+    }
+
+    const values = [];
+    const assignments = [];
+
+    for (const [column, value] of entries) {
+      values.push(value);
+      assignments.push(`${column} = $${values.length}`);
+    }
+
+    values.push(uuid);
+
+    const result = await client.query(
+      `
+        UPDATE plots
+        SET ${assignments.join(", ")}
+        WHERE uuid = $${values.length}
+          AND deleted_at IS NULL
+        RETURNING
+          id,
+          uuid,
+          project_id AS "projectId",
+          plot_number AS "plotNo",
+          plot_type AS "plotType",
+          base_price AS price,
+          status,
+          length,
+          breadth,
+          dimension,
+          area,
+          facing,
+          is_corner AS "isCorner",
+          boundary_wall AS "boundaryWall",
+          road_width AS "roadWidth",
+          notes,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+      `,
+      values,
+    );
+
+    await client.query("COMMIT");
+
+    return result.rows[0] || null;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   getProjects,
   getPlotStats,
   getPlotsByProjectUuid,
   getPlotsDropdown,
   getPlotsDropdown2,
+  updatePlotByUuid,
 };

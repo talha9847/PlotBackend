@@ -12,7 +12,10 @@ const SORT_COLUMNS = {
 };
 
 const INSTALLMENT_ROWS_SQL = `
-  WITH installment_rows AS (
+  -- Only collectible rows belong on the installments page: upcoming and
+  -- overdue installments with an outstanding balance. Paid, waived, cancelled,
+  -- and zero-balance rows are intentionally excluded from every query below.
+  WITH open_installment_rows AS (
     SELECT
       i.id,
       i.uuid AS installment_uuid,
@@ -28,7 +31,12 @@ const INSTALLMENT_ROWS_SQL = `
         0
       ) AS remaining,
 
-      i.status,
+      CASE
+        WHEN i.status IN ('pending', 'partially_paid')
+          AND i.due_date < CURRENT_DATE
+          THEN 'overdue'
+        ELSE i.status
+      END AS status,
 
       cp.id AS customer_plan_id,
 
@@ -70,6 +78,25 @@ const INSTALLMENT_ROWS_SQL = `
     INNER JOIN plots p
       ON p.id = b.plot_id
       AND p.deleted_at IS NULL
+
+    WHERE cp.status = 'active'
+      AND i.status IN ('pending', 'partially_paid', 'overdue')
+      AND i.amount_due + i.late_fee - i.amount_paid > 0
+  ),
+  installment_rows AS (
+    SELECT
+      open_rows.*,
+
+      -- Rank future and past-due rows separately. Rank 1 in the future
+      -- partition is the next upcoming installment for that plan.
+      ROW_NUMBER() OVER (
+        PARTITION BY
+          open_rows.customer_plan_id,
+          (open_rows.due_date >= CURRENT_DATE)
+        ORDER BY open_rows.due_date ASC, open_rows.installment_number ASC
+      ) AS upcoming_rank
+
+    FROM open_installment_rows open_rows
   )
 `;
 
@@ -93,7 +120,9 @@ function buildFilters({ search, status }) {
     `);
   }
 
-  if (status) {
+  if (status === "upcoming") {
+    conditions.push(`upcoming_rank = 1 AND due_date >= CURRENT_DATE`);
+  } else if (status) {
     params.push(status);
     conditions.push(`status = $${params.length}`);
   }
@@ -121,6 +150,7 @@ async function getInstallments({
   const direction = String(sortOrder).toLowerCase() === "desc" ? "DESC" : "ASC";
 
   const { where, params } = buildFilters({ search, status });
+  const { where: statsWhere, params: statsParams } = buildFilters({ search });
 
   const countQuery = `
     ${INSTALLMENT_ROWS_SQL}
@@ -179,20 +209,18 @@ async function getInstallments({
       )::int AS overdue_count,
 
       COUNT(*) FILTER (
-        WHERE status IN ('pending', 'partially_paid', 'overdue')
-          AND due_date BETWEEN CURRENT_DATE
-          AND CURRENT_DATE + 7
-          AND remaining > 0
+        WHERE upcoming_rank = 1
+          AND due_date >= CURRENT_DATE
       )::int AS upcoming_count
 
     FROM installment_rows
-    ${where}
+    ${statsWhere}
   `;
 
   const [countResult, rowsResult, statsResult] = await Promise.all([
     pool.query(countQuery, params),
     pool.query(rowsQuery, [...params, safeLimit, offset]),
-    pool.query(statsQuery, params),
+    pool.query(statsQuery, statsParams),
   ]);
 
   const total = countResult.rows[0].total;

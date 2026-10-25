@@ -1,5 +1,75 @@
 const { pool, query } = require("../config/db");
 
+const DUE_INSTALLMENT_STATUSES = new Set([
+  "pending",
+  "partially_paid",
+  "overdue",
+]);
+
+const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
+
+const installmentRemaining = (item) =>
+  Math.max(
+    0,
+    Number(item.amount_due || 0) +
+      Number(item.late_fee || 0) -
+      Number(item.amount_paid || 0),
+  );
+
+const isUnpaidInstallment = (item) => {
+  if (!DUE_INSTALLMENT_STATUSES.has(item.status)) return false;
+  return installmentRemaining(item) > 0;
+};
+
+/**
+ * A due installment is any unpaid installment whose scheduled date has arrived.
+ * The SQL query supplies `is_due` so the comparison uses the database date;
+ * the JS fallback keeps this correct for callers with plain API rows.
+ */
+const isDueUnpaidInstallment = (item) => {
+  if (!isUnpaidInstallment(item)) return false;
+
+  if (typeof item.is_due === "boolean") {
+    return item.is_due;
+  }
+
+  const dueDate = new Date(item.due_date);
+  if (Number.isNaN(dueDate.getTime())) return false;
+
+  dueDate.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return dueDate <= today;
+};
+
+/**
+ * An upcoming installment is unpaid but has not reached its due date yet.
+ * The installments query is ordered by due date, so the first match is the
+ * immediate next installment.
+ */
+const isUpcomingUnpaidInstallment = (item) =>
+  isUnpaidInstallment(item) && !isDueUnpaidInstallment(item);
+
+const buildInstallmentStats = (rows) => {
+  const dueRows = rows.filter(isDueUnpaidInstallment);
+
+  return {
+    total_installment_value: roundMoney(
+      rows.reduce((sum, item) => sum + Number(item.amount_due || 0), 0),
+    ),
+    total_paid_amount: roundMoney(
+      rows.reduce((sum, item) => sum + Number(item.amount_paid || 0), 0),
+    ),
+    total_pending_overdue_amount: roundMoney(
+      dueRows.reduce((sum, item) => sum + installmentRemaining(item), 0),
+    ),
+    overdue_count: dueRows.length,
+    due_count: dueRows.length,
+    total_installments: rows.length,
+  };
+};
+
 const SORT_COLUMNS = {
   name: "name",
   phone: "phone",
@@ -314,6 +384,11 @@ const getCustomerProfile = async (uuid) => {
         i.installment_number,
         i.description,
         i.due_date,
+        (i.due_date <= CURRENT_DATE) AS is_due,
+        GREATEST(
+          i.amount_due + i.late_fee - i.amount_paid,
+          0
+        ) AS remaining_amount,
         i.amount_due,
         i.amount_paid,
         i.late_fee,
@@ -368,7 +443,7 @@ const getCustomerProfile = async (uuid) => {
         AND receiver.deleted_at IS NULL
       LEFT JOIN plots p
         ON p.id = b.plot_id
-      WHERE pay.customer_id = $1
+      WHERE COALESCE(pay.customer_id, b.customer_id) = $1
         AND b.status NOT IN ('cancelled', 'refunded')
       ORDER BY pay.payment_date DESC, pay.id DESC
     `,
@@ -422,6 +497,17 @@ const getCustomerProfile = async (uuid) => {
     (item) => item.status === "overdue",
   );
 
+  // Only installments that have reached their due date and still have a
+  // balance are actionable. Future installments stay out of this list.
+  const dueInstallments = installments.filter(isDueUnpaidInstallment);
+
+  // When nothing is due, the immediate next unpaid installment is offered as
+  // an advance-payment option. The query is date-ordered, so find is enough.
+  const nextUpcomingInstallment =
+    installments.find(isUpcomingUnpaidInstallment) || null;
+
+  const installmentStats = buildInstallmentStats(installments);
+
   // 6. Attach installments and payments to each booking
   const bookingDetails = bookings.map((booking) => {
     const bookingInstallments = installments
@@ -439,6 +525,12 @@ const getCustomerProfile = async (uuid) => {
       (payment) => String(payment.booking_id) === String(booking.booking_id),
     );
 
+    const bookingDueInstallments = bookingInstallments.filter(
+      isDueUnpaidInstallment,
+    );
+    const bookingNextUpcomingInstallment =
+      bookingInstallments.find(isUpcomingUnpaidInstallment) || null;
+
     return {
       ...booking,
       balance: Number(
@@ -450,6 +542,9 @@ const getCustomerProfile = async (uuid) => {
           ),
       ),
       installments: bookingInstallments,
+      due_installments: bookingDueInstallments,
+      next_upcoming_installment: bookingNextUpcomingInstallment,
+      installment_stats: buildInstallmentStats(bookingInstallments),
       payments: bookingPayments,
     };
   });
@@ -485,6 +580,10 @@ const getCustomerProfile = async (uuid) => {
       paid_installments: paidInstallments.length,
       upcoming_installments: upcomingInstallments.length,
       overdue_installments: overdueInstallments.length,
+      due_installments: dueInstallments.length,
+      pending_overdue_amount: installmentStats.total_pending_overdue_amount,
+      total_installment_value: installmentStats.total_installment_value,
+      installment_paid_amount: installmentStats.total_paid_amount,
 
       total_payments: payments.length,
       completed_payments: completedPayments.length,
@@ -498,6 +597,12 @@ const getCustomerProfile = async (uuid) => {
     installments,
 
     payments,
+
+    due_installments: dueInstallments,
+
+    next_upcoming_installment: nextUpcomingInstallment,
+
+    installment_stats: installmentStats,
 
     upcoming_installments: upcomingInstallments,
 

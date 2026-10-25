@@ -1,4 +1,12 @@
 const { pool } = require("../config/db.js");
+const {
+  resolveAccount,
+  assertSufficientBalance,
+  generateSequenceNumber,
+  findIdempotentResource,
+  recordIdempotencyKey,
+  isIdempotencyViolation,
+} = require("./financeService");
 
 const createError = (message, statusCode = 400) => {
   const error = new Error(message);
@@ -85,7 +93,138 @@ const generatePaymentNumber = async (client, year) => {
   return `PAY-${year}-${String(lastSequence + 1).padStart(4, "0")}`;
 };
 
-const receivePayment = async (data, receivedBy) => {
+async function getPaymentByUuid(uuid) {
+  const result = await pool.query(
+    "SELECT * FROM payments WHERE uuid = $1 LIMIT 1",
+    [uuid],
+  );
+
+  return result.rows[0] || null;
+}
+
+/**
+ * Insert a refund row and move the original payment into the matching refund
+ * status. The caller must already hold a row lock on the payment.
+ */
+async function applyRefund(client, payment, data, createdBy) {
+  const reason = String(data.reason || "").trim();
+
+  if (!reason) {
+    throw createError("A refund reason is required.", 400);
+  }
+
+  if (reason.length > 5000) {
+    throw createError("Refund reason cannot exceed 5000 characters.", 400);
+  }
+
+  const amount = Number(data.amount);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw createError("A valid refund amount is required.", 400);
+  }
+
+  const previousResult = await client.query(
+    `SELECT COALESCE(SUM(amount), 0) AS refunded
+     FROM payment_reversals
+     WHERE original_payment_id = $1
+       AND status IN ('pending', 'completed')`,
+    [payment.id],
+  );
+
+  const previouslyRefunded = Number(previousResult.rows[0].refunded ?? 0);
+  const paymentAmount = Number(payment.amount);
+  const remaining = Number(
+    (paymentAmount - previouslyRefunded).toFixed(2),
+  );
+  const refundAmount = Number(amount.toFixed(2));
+
+  if (refundAmount > remaining) {
+    throw createError(
+      `Refund cannot exceed the refundable balance of ${remaining.toFixed(2)}.`,
+      409,
+    );
+  }
+
+  const method = data.payment_method || payment.payment_method;
+  const account = await resolveAccount(client, {
+    paymentMethod: method,
+    accountId: data.account_id ?? payment.account_id,
+    lock: false,
+  });
+
+  await assertSufficientBalance(client, {
+    accountId: account.id,
+    amount: refundAmount,
+  });
+
+  const refundDate = data.refund_date
+    ? String(data.refund_date).slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+  const refundNumber = await generateSequenceNumber(client, {
+    source: "payment_reversals",
+    prefix: "RFD",
+    year: Number(refundDate.slice(0, 4)),
+  });
+
+  const refundResult = await client.query(
+    `INSERT INTO payment_reversals (
+       reversal_number,
+       original_payment_id,
+       reversal_type,
+       amount,
+       account_id,
+       reason,
+       status,
+       method,
+       reference_number,
+       reversal_date,
+       created_by
+     )
+     VALUES (
+       $1, $2, 'refund', $3, $4, $5, 'completed', $6, $7,
+       $8::date::timestamptz, $9
+     )
+     RETURNING *`,
+    [
+      refundNumber,
+      payment.id,
+      refundAmount,
+      account.id,
+      reason,
+      method,
+      data.reference_number?.trim() || null,
+      refundDate,
+      createdBy || null,
+    ],
+  );
+
+  const totalRefunded = Number(
+    (previouslyRefunded + refundAmount).toFixed(2),
+  );
+
+  const paymentResult = await client.query(
+    `UPDATE payments
+     SET status = CASE
+           WHEN $2::numeric >= amount THEN 'refunded'
+           ELSE 'partially_refunded'
+         END,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [payment.id, totalRefunded],
+  );
+
+  return {
+    refund: refundResult.rows[0],
+    payment: paymentResult.rows[0],
+    refunded_total: totalRefunded,
+    remaining_refundable: Number(
+      (paymentAmount - totalRefunded).toFixed(2),
+    ),
+  };
+}
+
+const receivePayment = async (data, receivedBy, idempotencyKey = null) => {
   const {
     amount,
     booking_id,
@@ -102,6 +241,24 @@ const receivePayment = async (data, receivedBy) => {
 
   try {
     await client.query("BEGIN");
+
+    const existingUuid = await findIdempotentResource(
+      client,
+      idempotencyKey,
+      "payment.received",
+    );
+
+    if (existingUuid) {
+      await client.query("ROLLBACK");
+      const existingPayment = await getPaymentByUuid(existingUuid);
+
+      if (existingPayment) {
+        return {
+          payment: existingPayment,
+          idempotent_replay: true,
+        };
+      }
+    }
 
     const installmentResult = await client.query(
       `SELECT
@@ -174,6 +331,11 @@ const receivePayment = async (data, receivedBy) => {
       );
     }
 
+    const account = await resolveAccount(client, {
+      paymentMethod: payment_method,
+      accountId: account_id,
+    });
+
     const paymentYear = Number(paid_at.slice(0, 4));
     const paymentNumber = await generatePaymentNumber(client, paymentYear);
 
@@ -188,12 +350,13 @@ const receivePayment = async (data, receivedBy) => {
          payment_date,
          received_by,
          status,
+         payment_purpose,
          notes,
          account_id
        )
        VALUES (
          $1, $2, $3, $4, $5, $6,
-         $7::date::timestamptz, $8, 'completed', $9, $10
+         $7::date::timestamptz, $8, 'completed', 'installment', $9, $10
        )
        RETURNING *`,
       [
@@ -206,7 +369,7 @@ const receivePayment = async (data, receivedBy) => {
         paid_at,
         receivedBy || null,
         notes?.trim() || null,
-        account_id,
+        account.id,
       ],
     );
 
@@ -233,7 +396,6 @@ const receivePayment = async (data, receivedBy) => {
     );
 
     const updatedInstallment = updatedInstallmentResult.rows[0];
-    const isFullyPaid = updatedInstallment.status === "paid";
 
     const planUpdateResult = await client.query(
       `UPDATE customer_plans
@@ -260,78 +422,20 @@ const receivePayment = async (data, receivedBy) => {
 
     const updatedPlan = planUpdateResult.rows[0];
 
-    let nextInstallment = null;
-
-    const shouldCreateNext =
-      isFullyPaid ||
-      (["partially_paid", "overdue"].includes(updatedInstallment.status) &&
-        installment.is_due);
-
+    // The complete schedule is generated when the booking is confirmed, and
+    // migration 020 repairs legacy plans. Never create future installment rows
+    // lazily from a payment receipt: doing so can duplicate or misallocate the
+    // plan balance. Return the next existing row for backwards compatibility.
     const nextNumber = Number(installment.installment_number) + 1;
-    if (
-      shouldCreateNext &&
-      updatedPlan.status === "active" &&
-      nextNumber <= Number(updatedPlan.installment_count)
-    ) {
-      const nextDueDate = getNextDueDate(
-        installment.due_date,
-        updatedPlan.frequency,
-      );
-
-      if (nextDueDate) {
-        const allocationResult = await client.query(
-          `SELECT
-              GREATEST(
-                $1::numeric - COALESCE(
-                    SUM(
-                        GREATEST(i.amount_due - i.amount_paid, 0)
-                        ),
-                        0
-                        ),
-                        0
-                        ) AS unallocated_balance
-                        FROM installments i
-                        WHERE i.customer_plan_id = $2
-                        AND i.status NOT IN ('waived', 'cancelled')`,
-          [updatedPlan.remaining_balance, installment.plan_id],
-        );
-        const nextAmountResult = await client.query(
-          `SELECT LEAST(
-                $1::numeric,
-                $2::numeric
-                ) AS next_amount`,
-          [
-            installment.amount_due,
-            allocationResult.rows[0].unallocated_balance,
-          ],
-        );
-        const nextAmount = nextAmountResult.rows[0].next_amount;
-        const insertNextResult = await client.query(
-          `INSERT INTO installments (
-                customer_plan_id,
-                installment_number,
-                description,
-                due_date,
-                amount_due,
-                amount_paid,
-                status
-                )
-                SELECT $1, $2, $3, $4, $5::numeric, 0, 'pending'
-                WHERE $5::numeric > 0
-                ON CONFLICT (customer_plan_id, installment_number)
-                DO NOTHING
-                RETURNING *`,
-          [
-            installment.plan_id,
-            nextNumber,
-            `Installment ${nextNumber}`,
-            nextDueDate,
-            nextAmount,
-          ],
-        );
-        nextInstallment = insertNextResult.rows[0] || null;
-      }
-    }
+    const nextInstallmentResult = await client.query(
+      `SELECT *
+       FROM installments
+       WHERE customer_plan_id = $1
+         AND installment_number = $2
+       LIMIT 1`,
+      [installment.plan_id, nextNumber],
+    );
+    const nextInstallment = nextInstallmentResult.rows[0] || null;
 
     const outstandingResult = await client.query(
       `SELECT GREATEST(
@@ -341,6 +445,13 @@ const receivePayment = async (data, receivedBy) => {
        FROM installments
        WHERE id = $1`,
       [installment.id],
+    );
+
+    await recordIdempotencyKey(
+      client,
+      idempotencyKey,
+      "payment.received",
+      paymentResult.rows[0].uuid,
     );
 
     await client.query("COMMIT");
@@ -359,12 +470,142 @@ const receivePayment = async (data, receivedBy) => {
       console.error("Transaction rollback failed:", rollbackError);
     }
 
+    if (isIdempotencyViolation(error) && idempotencyKey) {
+      const existingResult = await pool.query(
+        `SELECT p.*
+         FROM idempotency_keys k
+         INNER JOIN payments p ON p.uuid = k.resource_uuid
+         WHERE k.key = $1
+           AND k.scope = 'payment.received'
+         LIMIT 1`,
+        [idempotencyKey],
+      );
+
+      if (existingResult.rowCount > 0) {
+        return {
+          payment: existingResult.rows[0],
+          idempotent_replay: true,
+        };
+      }
+    }
+
     throw error;
   } finally {
     client.release();
   }
 };
 
+/**
+ * Refund a receipt, partially or in full. Refunds are separate ledger rows;
+ * the original payment is never edited or deleted.
+ */
+async function refundPayment(
+  paymentUuid,
+  data,
+  createdBy,
+  idempotencyKey = null,
+) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existingUuid = await findIdempotentResource(
+      client,
+      idempotencyKey,
+      "payment.refund",
+    );
+
+    if (existingUuid) {
+      await client.query("ROLLBACK");
+      const existingResult = await pool.query(
+        `SELECT r.*, p.uuid AS payment_uuid
+         FROM payment_reversals r
+         INNER JOIN payments p ON p.id = r.original_payment_id
+         WHERE r.uuid = $1
+         LIMIT 1`,
+        [existingUuid],
+      );
+
+      if (existingResult.rowCount > 0) {
+        return {
+          refund: existingResult.rows[0],
+          idempotent_replay: true,
+        };
+      }
+    }
+
+    const paymentResult = await client.query(
+      `SELECT *
+       FROM payments
+       WHERE uuid = $1
+       FOR UPDATE`,
+      [paymentUuid],
+    );
+
+    const payment = paymentResult.rows[0];
+
+    if (!payment) {
+      throw createError("Payment not found.", 404);
+    }
+
+    if (!["completed", "partially_refunded"].includes(payment.status)) {
+      throw createError(
+        `Cannot refund a payment with status "${payment.status}".`,
+        409,
+      );
+    }
+
+    const result = await applyRefund(client, payment, data, createdBy);
+
+    await recordIdempotencyKey(
+      client,
+      idempotencyKey,
+      "payment.refund",
+      result.refund.uuid,
+    );
+
+    await client.query("COMMIT");
+
+    return result;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("Refund rollback failed:", rollbackError);
+    }
+
+    if (isIdempotencyViolation(error) && idempotencyKey) {
+      const existingResult = await pool.query(
+        `SELECT r.*, p.uuid AS payment_uuid
+         FROM idempotency_keys k
+         INNER JOIN payment_reversals r ON r.uuid = k.resource_uuid
+         INNER JOIN payments p ON p.id = r.original_payment_id
+         WHERE k.key = $1
+           AND k.scope = 'payment.refund'
+         LIMIT 1`,
+        [idempotencyKey],
+      );
+
+      if (existingResult.rowCount > 0) {
+        return {
+          refund: existingResult.rows[0],
+          idempotent_replay: true,
+        };
+      }
+    }
+
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   receivePayment,
+  refundPayment,
+  applyRefund,
+  getPaymentByUuid,
+  getNextDueDate,
+  generatePaymentNumber,
 };

@@ -18,6 +18,6 @@ router.get("/", auth.authenticate, leadController.getLeads);
 
 router.get("/:uuid", auth.authenticate, leadController.getLeadByUuid);
 
-router.put("/:uuid", leadController.updateLead);
+router.put("/:uuid", auth.authenticate, leadController.updateLead);
 
 module.exports = router;

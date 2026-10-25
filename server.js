@@ -80,32 +80,67 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
+  const statusCode = Number(err.statusCode || err.status);
+
+  // Service and validation errors carry an explicit 4xx status. Database
+  // constraint violations are mapped to a conflict response; everything else
+  // remains an opaque 500 so internal details never leak to clients.
+  if (Number.isInteger(statusCode) && statusCode >= 400 && statusCode < 500) {
+    return res.status(statusCode).json({
+      success: false,
+      message: err.message || "Request failed",
+    });
+  }
+
+  if (err.code === "23505") {
+    return res.status(409).json({
+      success: false,
+      message: "A record with these details already exists",
+    });
+  }
+
+  if (err.code === "23503") {
+    return res.status(400).json({
+      success: false,
+      message: "A referenced record does not exist",
+    });
+  }
+
   console.error(err);
 
-  res.status(err.status || 500).json({
+  return res.status(500).json({
     success: false,
     message: "Internal server error",
   });
 });
 
-const server = app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Plotwise API running at http://localhost:${PORT}`);
-});
-server.on("error", (error) => {
-  console.error("HTTP server error:", error);
+if (require.main === module) {
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Plotwise API running at http://localhost:${PORT}`);
+  });
+
+  server.on("error", (error) => {
+    console.error("HTTP server error:", error);
+  });
+
+  server.on("close", () => {
+    console.error("HTTP server closed unexpectedly");
+  });
+
+  process.on("uncaughtException", (error) => {
+    console.error("Uncaught exception:", error);
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    console.error("Unhandled rejection:", reason);
+  });
+}
+app.use((req, res, next) => {
+  console.log(`🌐 [${req.method}] ${req.originalUrl} <- From: ${req.get('referer') || 'Direct API'}`);
+  next();
 });
 
-server.on("close", () => {
-  console.error("HTTP server closed unexpectedly");
-});
-
-process.on("uncaughtException", (error) => {
-  console.error("Uncaught exception:", error);
-});
-
-process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled rejection:", reason);
-});
+module.exports = app;
 
 async function dropAllTables() {
   const { pool, query } = require("./config/db");

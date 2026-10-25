@@ -28,4 +28,7 @@ router.get(
   plotController.getPlotsDropdown2,
 );
 
+// Update a single plot's editable attributes.
+router.put("/:uuid", auth.authenticate, plotController.updatePlot);
+
 module.exports = router;
