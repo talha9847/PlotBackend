@@ -71,9 +71,20 @@ async function getUserById(userId) {
   };
 }
 
-module.exports = {
-  login,
-  getUserById,
-};
+async function resetPassword(userId, newPassword) {
+  const passwordHash = await bcrypt.hash(newPassword, 12);
 
-module.exports = { login, getUserById };
+  const result = await query(
+    `UPDATE users
+     SET password_hash = $1
+     WHERE id = $2
+       AND is_active = TRUE
+       AND deleted_at IS NULL
+     RETURNING id`,
+    [passwordHash, userId],
+  );
+
+  return result.rowCount > 0;
+}
+
+module.exports = { login, getUserById, resetPassword };

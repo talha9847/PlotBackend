@@ -74,4 +74,66 @@ async function me(req, res, next) {
     next(error);
   }
 }
-module.exports = { login, me };
+
+async function resetPassword(req, res, next) {
+  try {
+    const { newPassword, confirmPassword } = req.body || {};
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
+    }
+
+    if (
+      typeof newPassword !== "string" ||
+      typeof confirmPassword !== "string"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "New password and confirm password are required.",
+      });
+    }
+
+    if (
+      newPassword.length < 8 ||
+      newPassword.length > 128 ||
+      !/[A-Z]/.test(newPassword) ||
+      !/[a-z]/.test(newPassword) ||
+      !/[0-9]/.test(newPassword)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Password must contain at least 8 characters, one uppercase letter, one lowercase letter, and one number.",
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Passwords do not match.",
+      });
+    }
+
+    const updated = await authService.resetPassword(userId, newPassword);
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Active user not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Password changed successfully.",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = { login, me, resetPassword };
