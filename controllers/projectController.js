@@ -214,9 +214,104 @@ async function manageProjectPlots(req, res, next) {
     next(error);
   }
 }
+
+async function updateProjectLocation(req, res, next) {
+  try {
+    const { projectUuid } = req.params;
+
+    const {  address, latitude, longitude, googleMapsUrl } =
+      req.body;
+
+
+
+    if (!address?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Address is required.",
+      });
+    }
+
+    if (
+      latitude === undefined ||
+      longitude === undefined ||
+      !Number.isFinite(Number(latitude)) ||
+      !Number.isFinite(Number(longitude)) ||
+      Number(latitude) < -90 ||
+      Number(latitude) > 90 ||
+      Number(longitude) < -180 ||
+      Number(longitude) > 180
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid latitude and longitude are required.",
+      });
+    }
+
+    const project = await projectService.updateProjectLocationByUuid(
+      projectUuid,
+      {
+        address: address.trim(),
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        googleMapsUrl,
+      },
+    );
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: "Project not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Project location updated successfully.",
+      data: project,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function getProjectLocation(req, res, next) {
+  try {
+    const { projectUuid } = req.params;
+
+    if (!UUID_REGEX.test(projectUuid)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid project UUID",
+      });
+    }
+
+    const project = await projectService.getProjectLocationByUuid(projectUuid);
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: "Project not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Project location fetched successfully",
+      data: project,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createProject,
   getProjects,
   getProjectStats,
+  updateProjectLocation,
+  getProjectLocation,
   manageProjectPlots,
 };

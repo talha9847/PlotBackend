@@ -10,6 +10,18 @@ router.post(
   auth.authenticate,
   projectController.manageProjectPlots,
 );
+
+router.get(
+  "/:projectUuid/location",
+  auth.authenticate,
+  projectController.getProjectLocation,
+);
+
+router.patch(
+  "/:projectUuid/location",
+  auth.authenticate,
+  projectController.updateProjectLocation,
+);
 router.get("/stats", auth.authenticate, projectController.getProjectStats);
 router.get("/getProjects", auth.authenticate, projectController.getProjects);
 module.exports = router;

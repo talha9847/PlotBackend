@@ -39,10 +39,10 @@ async function up(client) {
 
       notes TEXT,
 
-      length NUMERIC(10,2) 
+      length NUMERIC(10,2)
         CHECK (length > 0),
 
-      breadth NUMERIC(10,2)  
+      breadth NUMERIC(10,2)
         CHECK (breadth > 0),
 
       dimension VARCHAR(5) NOT NULL DEFAULT 'ft'
@@ -50,6 +50,28 @@ async function up(client) {
 
       area NUMERIC(14,2)
         GENERATED ALWAYS AS (length * breadth) STORED,
+
+      facing VARCHAR(20)
+        CHECK (
+          facing IS NULL
+          OR facing IN (
+            'north',
+            'south',
+            'east',
+            'west',
+            'north_east',
+            'north_west',
+            'south_east',
+            'south_west'
+          )
+        ),
+
+      is_corner BOOLEAN NOT NULL DEFAULT FALSE,
+
+      boundary_wall BOOLEAN NOT NULL DEFAULT FALSE,
+
+      road_width NUMERIC(8,2)
+        CHECK (road_width IS NULL OR road_width >= 0),
 
       created_by BIGINT
         REFERENCES users(id) ON DELETE SET NULL,
@@ -76,6 +98,10 @@ async function up(client) {
 
     CREATE INDEX IF NOT EXISTS idx_plots_created_by
       ON plots (created_by);
+
+    CREATE INDEX IF NOT EXISTS idx_plots_facing
+      ON plots (facing)
+      WHERE deleted_at IS NULL;
 
     CREATE OR REPLACE FUNCTION set_plots_updated_at()
     RETURNS TRIGGER AS $$

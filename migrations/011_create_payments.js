@@ -1,3 +1,5 @@
+"use strict";
+
 async function up(client) {
   await client.query(`
     CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -11,7 +13,7 @@ async function up(client) {
       booking_id BIGINT NOT NULL
         REFERENCES bookings(id) ON DELETE RESTRICT,
 
-      customer_id BIGINT NOT NULL
+      customer_id BIGINT
         REFERENCES customers(id) ON DELETE RESTRICT,
 
       installment_id BIGINT
@@ -19,6 +21,15 @@ async function up(client) {
 
       account_id BIGINT NOT NULL
         REFERENCES accounts(id) ON DELETE RESTRICT,
+
+      payment_purpose VARCHAR(30) NOT NULL DEFAULT 'installment'
+        CHECK (
+          payment_purpose IN (
+            'booking_token',
+            'down_payment',
+            'installment'
+          )
+        ),
 
       payment_method VARCHAR(24) NOT NULL
         CHECK (
@@ -59,7 +70,12 @@ async function up(client) {
       notes TEXT,
 
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+      CONSTRAINT chk_payments_installment_requires_customer
+        CHECK (
+          installment_id IS NULL OR customer_id IS NOT NULL
+        )
     );
 
     -- Indexes
@@ -80,6 +96,15 @@ async function up(client) {
 
     CREATE INDEX IF NOT EXISTS idx_payments_status
       ON payments (status);
+
+    CREATE INDEX IF NOT EXISTS idx_payments_booking_purpose
+      ON payments (booking_id, payment_purpose);
+
+    -- At most one booking token and one down payment per booking.
+    CREATE UNIQUE INDEX IF NOT EXISTS
+      uq_payments_booking_receipt_purpose
+      ON payments (booking_id, payment_purpose)
+      WHERE payment_purpose IN ('booking_token', 'down_payment');
 
     -- Updated-at trigger function
     CREATE OR REPLACE FUNCTION set_payments_updated_at()

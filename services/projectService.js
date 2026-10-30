@@ -463,10 +463,77 @@ async function getProjectStats() {
   return result.rows[0];
 }
 
+async function updateProjectLocationByUuid(projectUuid, data) {
+  const { address, latitude, longitude, googleMapsUrl } = data;
+
+  const result = await query(
+    `UPDATE projects
+     SET 
+         address_line1 = $1,
+         latitude = $2,
+         longitude = $3,
+         google_map_url = $4,
+         updated_at = NOW()
+     WHERE uuid = $5
+       AND deleted_at IS NULL
+     RETURNING
+       id,
+       uuid,
+       name,
+       address_line1,
+       latitude,
+       longitude,
+       google_map_url,
+       updated_at`,
+    [address, latitude, longitude, googleMapsUrl, projectUuid],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function getProjectLocationByUuid(projectUuid) {
+  const result = await query(
+    `SELECT
+       uuid,
+       name,
+       address_line1,
+       address_line2,
+       city,
+       district,
+       state,
+       postal_code,
+       latitude,
+       longitude,
+       google_map_url,
+       updated_at
+     FROM projects
+     WHERE uuid = $1
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [projectUuid],
+  );
+
+  if (result.rowCount === 0) {
+    return null;
+  }
+
+  const project = result.rows[0];
+
+  return {
+    ...project,
+    googleMapsUrl:
+      project.latitude !== null && project.longitude !== null
+        ? `https://www.google.com/maps?q=${project.latitude},${project.longitude}`
+        : null,
+  };
+}
+
 module.exports = {
   createProject,
   ProjectServiceError,
   getProjects,
   getProjectStats,
   manageProjectPlots,
+  updateProjectLocationByUuid,
+  getProjectLocationByUuid,
 };

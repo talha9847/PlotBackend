@@ -39,6 +39,27 @@ CREATE TABLE projects (
 
 
 
+CREATE TABLE project_images (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
+    project_id BIGINT NOT NULL
+        REFERENCES projects(id) ON DELETE RESTRICT,
+
+    image_url TEXT NOT NULL,
+    alt_text VARCHAR(255),
+    is_cover BOOLEAN NOT NULL DEFAULT FALSE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CHECK (sort_order >= 0)
+);
+
+CREATE INDEX idx_project_images_project_id
+    ON project_images(project_id);
+
+
+
 CREATE TABLE plots (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
